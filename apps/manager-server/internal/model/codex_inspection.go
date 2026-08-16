@@ -144,7 +144,24 @@ type CodexInspectionQuotaWindow struct {
 	LabelParams        map[string]any `json:"labelParams,omitempty"`
 	UsedPercent        *float64       `json:"usedPercent,omitempty"`
 	ResetLabel         string         `json:"resetLabel"`
+	ResetAtMS          int64          `json:"resetAtMs,omitempty"`
 	LimitWindowSeconds *float64       `json:"limitWindowSeconds,omitempty"`
+}
+
+type CodexWeeklyPoolEstimate struct {
+	Official         bool     `json:"official"`
+	Basis            string   `json:"basis"`
+	Status           string   `json:"status"`
+	Reason           string   `json:"reason,omitempty"`
+	WeeklyPoolUSD    *float64 `json:"weeklyPoolUsd,omitempty"`
+	CostDeltaUSD     float64  `json:"costDeltaUsd,omitempty"`
+	UsedPercentDelta float64  `json:"usedPercentDelta,omitempty"`
+	BaselineAtMS     int64    `json:"baselineAtMs,omitempty"`
+	CurrentAtMS      int64    `json:"currentAtMs,omitempty"`
+	WeeklyResetAtMS  int64    `json:"weeklyResetAtMs,omitempty"`
+	PriceSources     []string `json:"priceSources,omitempty"`
+	PriceSyncedAtMS  int64    `json:"priceSyncedAtMs,omitempty"`
+	PriceUpdatedAtMS int64    `json:"priceUpdatedAtMs,omitempty"`
 }
 
 type CodexInspectionResult struct {
@@ -172,6 +189,7 @@ type CodexInspectionResult struct {
 	Error               string                       `json:"error,omitempty"`
 	PlanType            string                       `json:"planType,omitempty"`
 	QuotaWindows        []CodexInspectionQuotaWindow `json:"quotaWindows,omitempty"`
+	WeeklyPoolEstimate  *CodexWeeklyPoolEstimate     `json:"weeklyPoolEstimate,omitempty"`
 	QuotaWindowsJSON    string                       `json:"-"`
 	ErrorKind           string                       `json:"errorKind,omitempty"`
 	ErrorDetail         string                       `json:"errorDetail,omitempty"`

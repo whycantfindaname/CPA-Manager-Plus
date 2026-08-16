@@ -101,6 +101,7 @@ func Migrate(db *sql.DB) error {
 		`create index if not exists idx_usage_events_request_id on usage_events(request_id)`,
 		`create index if not exists idx_usage_events_model on usage_events(model)`,
 		`create index if not exists idx_usage_events_auth_index on usage_events(auth_index)`,
+		`create index if not exists idx_usage_events_auth_index_timestamp on usage_events(auth_index, timestamp_ms)`,
 		`create index if not exists idx_usage_events_endpoint on usage_events(endpoint)`,
 		`create table if not exists usage_rollup_checkpoints (
 			name text primary key,
@@ -725,6 +726,7 @@ func Migrate(db *sql.DB) error {
 			unique(run_id, account_key)
 		)`,
 		`create index if not exists idx_codex_inspection_results_run on codex_inspection_results(run_id)`,
+		`create index if not exists idx_codex_inspection_results_identity_created on codex_inspection_results(auth_index, account_id, created_at_ms)`,
 		`create table if not exists codex_inspection_logs (
 			id integer primary key autoincrement,
 			run_id integer not null,

@@ -25,6 +25,7 @@ import {
 } from '@/features/monitoring/model/codexInspectionPresentation';
 import { getCodexPlanLabel } from '@/features/monitoring/components/accountOverviewPresentation';
 import { CodexInspectionQuotaWindows } from '@/features/monitoring/components/CodexInspectionQuotaWindows';
+import { CodexWeeklyPoolEstimate } from '@/features/monitoring/components/CodexWeeklyPoolEstimate';
 import { Panel } from '@/features/monitoring/components/CodexInspectionPanels';
 import { useNotificationStore } from '@/stores';
 import { copyToClipboard } from '@/utils/clipboard';
@@ -327,6 +328,7 @@ export function CodexInspectionResultsPanel({
                         fallbackUsedPercent={item.usedPercent}
                         t={t}
                       />
+                      <CodexWeeklyPoolEstimate estimate={item.weeklyPoolEstimate} t={t} />
                     </section>
 
                     <section

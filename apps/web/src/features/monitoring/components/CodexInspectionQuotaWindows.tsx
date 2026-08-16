@@ -8,6 +8,7 @@ export type CodexInspectionQuotaWindowView = {
   labelParams?: Record<string, string | number>;
   usedPercent?: number | null;
   resetLabel?: string;
+  resetAtMs?: number | null;
 };
 
 type CodexInspectionQuotaWindowsProps = {

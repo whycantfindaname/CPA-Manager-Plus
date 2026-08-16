@@ -357,6 +357,10 @@ func (s *Store) ListCodexInspectionResults(ctx context.Context, runID int64) ([]
 	return s.CodexInspections.ListResults(ctx, runID)
 }
 
+func (s *Store) ListCodexInspectionResultsByIdentity(ctx context.Context, authIndex, accountID string, fromMS, beforeMS int64) ([]CodexInspectionResult, error) {
+	return s.CodexInspections.ListResultsByIdentity(ctx, authIndex, accountID, fromMS, beforeMS)
+}
+
 func (s *Store) ListCodexInspectionLogs(ctx context.Context, runID int64) ([]CodexInspectionLog, error) {
 	return s.CodexInspections.ListLogs(ctx, runID)
 }

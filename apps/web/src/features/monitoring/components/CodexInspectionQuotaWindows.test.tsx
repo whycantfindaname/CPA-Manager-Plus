@@ -46,4 +46,23 @@ describe('CodexInspectionQuotaWindows', () => {
       renderer!.root.findAll((node) => node.props.className === styles.quotaWindowPlaceholderBar)
     ).toHaveLength(1);
   });
+
+  it('renders a weekly-only plan without inventing a five-hour window', () => {
+    let renderer: ReactTestRenderer;
+    act(() => {
+      renderer = create(
+        <CodexInspectionQuotaWindows
+          windows={[{ id: 'weekly', labelKey: 'weekly', usedPercent: 79 }]}
+          t={t}
+        />
+      );
+    });
+
+    const text = collectText(renderer!);
+    expect(text).toContain('weekly');
+    expect(text).not.toContain('codex_quota.primary_window');
+    expect(
+      renderer!.root.findAll((node) => node.props.className === styles.quotaWindowRow)
+    ).toHaveLength(1);
+  });
 });
