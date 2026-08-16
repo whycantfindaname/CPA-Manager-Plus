@@ -925,6 +925,82 @@
   overflow-wrap: anywhere;
 }
 
+.weeklyEstimate {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px dashed color-mix(in srgb, var(--inspect-line-strong) 72%, transparent);
+}
+
+.weeklyEstimateHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.weeklyEstimateLabel {
+  color: var(--inspect-ink);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.weeklyEstimateStatus {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1.35;
+}
+
+.weeklyEstimateStatusUnavailable,
+.weeklyEstimateStatusInsufficient {
+  background: var(--inspect-surface-muted);
+  color: var(--inspect-muted);
+}
+
+.weeklyEstimateStatusPreliminary {
+  background: color-mix(in srgb, var(--inspect-amber) 12%, var(--inspect-surface));
+  color: var(--inspect-amber);
+}
+
+.weeklyEstimateStatusReliable {
+  background: color-mix(in srgb, var(--inspect-green) 12%, var(--inspect-surface));
+  color: var(--inspect-green);
+}
+
+.weeklyEstimateValue {
+  color: var(--inspect-ink);
+  font-family: var(--font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.weeklyEstimateEquation,
+.weeklyEstimateReason,
+.weeklyEstimatePriceSource,
+.weeklyEstimateDisclaimer {
+  color: var(--inspect-muted);
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.weeklyEstimateEquation {
+  color: var(--inspect-ink);
+  font-family: var(--font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.weeklyEstimateDisclaimer {
+  font-weight: 650;
+}
+
 .quotaWindowValue {
   flex: 0 0 auto;
   color: var(--inspect-ink);

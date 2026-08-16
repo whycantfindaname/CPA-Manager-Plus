@@ -614,8 +614,15 @@ function toServerResultItem(
       labelParams: window.labelParams,
       usedPercent: window.usedPercent ?? null,
       resetLabel: window.resetLabel ?? '',
+      resetAtMs: window.resetAtMs ?? null,
       limitWindowSeconds: window.limitWindowSeconds ?? null,
     })),
+    weeklyPoolEstimate: item.weeklyPoolEstimate
+      ? {
+          ...item.weeklyPoolEstimate,
+          weeklyPoolUsd: item.weeklyPoolEstimate.weeklyPoolUsd ?? null,
+        }
+      : null,
     errorKind: item.errorKind,
     errorDetail: item.errorDetail || '',
     actionHandled: isHandledServerCodexInspectionResult(item),

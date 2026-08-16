@@ -38,6 +38,7 @@ type Repository interface {
 	GetLatestRunByTrigger(ctx context.Context, triggerType, triggerKey string) (model.CodexInspectionRun, bool, error)
 	GetLatestRunByTriggerType(ctx context.Context, triggerType string) (model.CodexInspectionRun, bool, error)
 	ListResults(ctx context.Context, runID int64) ([]model.CodexInspectionResult, error)
+	ListResultsByIdentity(ctx context.Context, authIndex, accountID string, fromMS, beforeMS int64) ([]model.CodexInspectionResult, error)
 	ListLogs(ctx context.Context, runID int64) ([]model.CodexInspectionLog, error)
 	ListDisableOwnership(ctx context.Context) ([]model.CodexInspectionDisableOwnership, error)
 	UpsertDisableOwnership(ctx context.Context, item model.CodexInspectionDisableOwnership) error
@@ -443,6 +444,44 @@ func (r *repository) ListResults(ctx context.Context, runID int64) ([]model.Code
 		result, err := scanResult(rows)
 		if err != nil {
 			return nil, err
+		}
+		results = append(results, result)
+	}
+	return results, rows.Err()
+}
+
+func (r *repository) ListResultsByIdentity(ctx context.Context, authIndex, accountID string, fromMS, beforeMS int64) ([]model.CodexInspectionResult, error) {
+	authIndex = strings.TrimSpace(authIndex)
+	accountID = strings.TrimSpace(accountID)
+	if authIndex == "" || accountID == "" || fromMS >= beforeMS {
+		return nil, nil
+	}
+	rows, err := r.db.QueryContext(
+		ctx,
+		`select
+			id, run_id, account_key, file_name, display_account, account_snapshot, auth_index, account_id,
+			provider, disabled, status, state, action, action_reason, status_code,
+			used_percent, is_quota, auto_recover_eligible, error, action_status, executed_action, action_error,
+			plan_type, quota_windows_json, error_kind, error_detail, created_at_ms
+		from codex_inspection_results
+		where provider = ? and auth_index = ? and account_id = ? and created_at_ms >= ? and created_at_ms < ?
+		order by created_at_ms asc, id asc`,
+		model.CodexInspectionTargetCodex,
+		authIndex,
+		accountID,
+		fromMS,
+		beforeMS,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	results := make([]model.CodexInspectionResult, 0)
+	for rows.Next() {
+		result, scanErr := scanResult(rows)
+		if scanErr != nil {
+			return nil, scanErr
 		}
 		results = append(results, result)
 	}

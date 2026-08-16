@@ -11,6 +11,7 @@ import tooltipStyles from './FailureDetailsTooltip.module.scss';
 import { CodexInspectionResultsPanel } from './CodexInspectionResultsPanel';
 
 const t = ((key: string, options?: Record<string, unknown>) => {
+  if (options?.cost) return `${key}:${options.cost}:${options.percent}`;
   if (options?.percent) return `${key}:${options.percent}`;
   if (options?.count !== undefined) return `${key}:${options.count}`;
   return key;
@@ -122,6 +123,31 @@ describe('CodexInspectionResultsPanel', () => {
 
     expect(renderer.root.findByProps({ 'data-testid': 'custom-operation' })).toBeDefined();
     expect(renderer.root.findAllByType('article')).toHaveLength(1);
+  });
+
+  it('shows the per-account weekly estimate, reliability, formula, and disclaimer', () => {
+    const renderer = renderPanel(
+      createItem({
+        weeklyPoolEstimate: {
+          official: false,
+          basis: 'api_equivalent_cost',
+          status: 'reliable',
+          weeklyPoolUsd: 2040,
+          costDeltaUsd: 102,
+          usedPercentDelta: 5,
+          priceSources: ['models.dev'],
+        },
+      })
+    );
+    const text = collectText(renderer);
+    const estimate = renderer.root.findByProps({ 'data-status': 'reliable' });
+
+    expect(estimate).toBeDefined();
+    expect(text).toContain('monitoring.codex_inspection_weekly_estimate_title');
+    expect(text).toContain('monitoring.codex_inspection_weekly_estimate_status_reliable');
+    expect(text).toContain('monitoring.codex_inspection_weekly_estimate_equation:$102:5%');
+    expect(text).toContain('monitoring.codex_inspection_weekly_estimate_disclaimer');
+    expect(text).toContain('monitoring.codex_inspection_weekly_estimate_price_source');
   });
 
   it('renders the xAI probe HTTP status when billing health returns one', () => {

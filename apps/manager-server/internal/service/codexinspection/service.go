@@ -1370,6 +1370,9 @@ func (s *Service) GetRun(ctx context.Context, id int64) (RunDetail, error) {
 	if err != nil {
 		return RunDetail{}, err
 	}
+	if run.Status == model.CodexInspectionStatusCompleted {
+		s.attachWeeklyPoolEstimates(ctx, results)
+	}
 	return RunDetail{Run: run, Results: results, Logs: logs}, nil
 }
 
@@ -1755,6 +1758,7 @@ func (s *Service) inspectSingleAccount(
 		})
 		return base
 	}
+	base.CreatedAtMS = time.Now().UnixMilli()
 	if !response.HasStatusCode {
 		base.Action = "keep"
 		base.ActionReason = "探测响应缺少 status_code，保留账号"
@@ -4501,7 +4505,8 @@ func addCodexWindowInfo(
 	if window == nil {
 		return
 	}
-	resetLabel := formatCodexResetLabel(window)
+	resetAtMS := codexResetAtMS(window)
+	resetLabel := formatUnixMilliseconds(resetAtMS)
 	usedPercent := window.UsedPercent
 	if usedPercent == nil && (limitReached || (allowed != nil && !*allowed)) && resetLabel != "-" {
 		usedPercent = ptrFloat(100)
@@ -4512,6 +4517,7 @@ func addCodexWindowInfo(
 		LabelParams:        copyCodexLabelParams(labelParams),
 		UsedPercent:        usedPercent,
 		ResetLabel:         resetLabel,
+		ResetAtMS:          resetAtMS,
 		LimitWindowSeconds: window.LimitWindowSeconds,
 	})
 }
@@ -4564,25 +4570,24 @@ func readMapSlice(record map[string]any, keys ...string) []map[string]any {
 	return nil
 }
 
-func formatCodexResetLabel(window *codexWindow) string {
+func codexResetAtMS(window *codexWindow) int64 {
 	if window == nil {
-		return "-"
+		return 0
 	}
 	if window.ResetAt != nil && *window.ResetAt > 0 {
-		return formatUnixSeconds(*window.ResetAt)
+		return int64(math.Floor(*window.ResetAt)) * 1000
 	}
 	if window.ResetAfterSeconds != nil && *window.ResetAfterSeconds > 0 {
-		targetSeconds := float64(time.Now().Unix()) + math.Floor(*window.ResetAfterSeconds)
-		return formatUnixSeconds(targetSeconds)
+		return (time.Now().Unix() + int64(math.Floor(*window.ResetAfterSeconds))) * 1000
 	}
-	return "-"
+	return 0
 }
 
-func formatUnixSeconds(seconds float64) string {
-	if seconds <= 0 {
+func formatUnixMilliseconds(milliseconds int64) string {
+	if milliseconds <= 0 {
 		return "-"
 	}
-	unixSeconds := int64(math.Floor(seconds))
+	unixSeconds := milliseconds / 1000
 	if unixSeconds <= 0 {
 		return "-"
 	}

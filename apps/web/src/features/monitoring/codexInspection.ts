@@ -151,7 +151,30 @@ export interface CodexInspectionQuotaWindow {
   labelParams?: Record<string, string | number>;
   usedPercent: number | null;
   resetLabel: string;
+  resetAtMs?: number | null;
   limitWindowSeconds: number | null;
+}
+
+export type CodexWeeklyPoolEstimateStatus =
+  | 'unavailable'
+  | 'insufficient'
+  | 'preliminary'
+  | 'reliable';
+
+export interface CodexWeeklyPoolEstimate {
+  official: boolean;
+  basis: 'api_equivalent_cost' | string;
+  status: CodexWeeklyPoolEstimateStatus;
+  reason?: string;
+  weeklyPoolUsd?: number | null;
+  costDeltaUsd?: number;
+  usedPercentDelta?: number;
+  baselineAtMs?: number;
+  currentAtMs?: number;
+  weeklyResetAtMs?: number;
+  priceSources?: string[];
+  priceSyncedAtMs?: number;
+  priceUpdatedAtMs?: number;
 }
 
 export interface CodexInspectionResultItem extends CodexInspectionAccount {
@@ -164,6 +187,7 @@ export interface CodexInspectionResultItem extends CodexInspectionAccount {
   error: string;
   planType?: string | null;
   quotaWindows?: CodexInspectionQuotaWindow[];
+  weeklyPoolEstimate?: CodexWeeklyPoolEstimate | null;
   errorKind?: string;
   errorDetail?: string;
   actionHandled?: boolean;
