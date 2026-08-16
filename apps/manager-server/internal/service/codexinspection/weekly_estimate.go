@@ -5,6 +5,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/model"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/pricing"
@@ -13,6 +14,7 @@ import (
 
 const (
 	weeklyEstimateBasisAPIEquivalent = "api_equivalent_cost"
+	weeklyResetDriftTolerance        = time.Minute
 
 	weeklyEstimateStatusUnavailable  = "unavailable"
 	weeklyEstimateStatusInsufficient = "insufficient"
@@ -142,7 +144,7 @@ func selectWeeklyBaseline(history []model.CodexInspectionResult, currentWindow m
 	quotaDecreased := false
 	for _, candidate := range history {
 		window := standardWeeklyQuotaWindow(candidate.QuotaWindows)
-		if window == nil || window.UsedPercent == nil || window.ResetAtMS != currentWindow.ResetAtMS {
+		if window == nil || window.UsedPercent == nil || !sameWeeklyResetWindow(window.ResetAtMS, currentWindow.ResetAtMS) {
 			continue
 		}
 		if *window.UsedPercent > currentUsedPercent {
@@ -157,6 +159,17 @@ func selectWeeklyBaseline(history []model.CodexInspectionResult, currentWindow m
 		}
 	}
 	return selected, found, quotaDecreased
+}
+
+func sameWeeklyResetWindow(leftMS, rightMS int64) bool {
+	if leftMS <= 0 || rightMS <= 0 {
+		return false
+	}
+	delta := leftMS - rightMS
+	if delta < 0 {
+		delta = -delta
+	}
+	return delta <= int64(weeklyResetDriftTolerance/time.Millisecond)
 }
 
 func weeklyEstimateStatus(delta float64) string {

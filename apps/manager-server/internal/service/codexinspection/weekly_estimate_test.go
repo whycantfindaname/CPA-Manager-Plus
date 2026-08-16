@@ -87,7 +87,7 @@ func TestGetRunEstimatesWeeklyPoolPerAccountAndResetWindow(t *testing.T) {
 		{authIndex: "auth-b", accountID: "account-b", usedPercent: 40},
 		{authIndex: "auth-c", accountID: "account-c", usedPercent: 79},
 	})
-	insertWeeklyInspectionRun(t, db, baselineAtMS-2, resetAtMS+1_000, []weeklyInspectionSample{
+	insertWeeklyInspectionRun(t, db, baselineAtMS-2, resetAtMS+int64(2*time.Minute/time.Millisecond), []weeklyInspectionSample{
 		{authIndex: "auth-a", accountID: "account-a", usedPercent: 0},
 	})
 	insertWeeklyInspectionRun(t, db, baselineAtMS-1, resetAtMS, []weeklyInspectionSample{
@@ -104,7 +104,8 @@ func TestGetRunEstimatesWeeklyPoolPerAccountAndResetWindow(t *testing.T) {
 		t.Fatalf("insert usage events: %v", err)
 	}
 
-	currentRun := insertWeeklyInspectionRun(t, db, currentAtMS, resetAtMS, []weeklyInspectionSample{
+	currentResetAtMS := resetAtMS + 1_000
+	currentRun := insertWeeklyInspectionRun(t, db, currentAtMS, currentResetAtMS, []weeklyInspectionSample{
 		{authIndex: "auth-a", accountID: "account-a", usedPercent: 25},
 		{authIndex: "auth-b", accountID: "account-b", usedPercent: 45},
 		{authIndex: "auth-c", accountID: "account-c", usedPercent: 79},
@@ -121,8 +122,8 @@ func TestGetRunEstimatesWeeklyPoolPerAccountAndResetWindow(t *testing.T) {
 	for index := range detail.Results {
 		estimates[detail.Results[index].AccountID] = detail.Results[index].WeeklyPoolEstimate
 	}
-	assertWeeklyEstimate(t, estimates["account-a"], 0.25, 5, 5, baselineAtMS, resetAtMS)
-	assertWeeklyEstimate(t, estimates["account-b"], 0.5, 5, 10, baselineAtMS, resetAtMS)
+	assertWeeklyEstimate(t, estimates["account-a"], 0.25, 5, 5, baselineAtMS, currentResetAtMS)
+	assertWeeklyEstimate(t, estimates["account-b"], 0.5, 5, 10, baselineAtMS, currentResetAtMS)
 	if estimate := estimates["account-c"]; estimate == nil || estimate.Status != weeklyEstimateStatusInsufficient || estimate.WeeklyPoolUSD != nil || estimate.Reason != "delta_too_small" {
 		t.Fatalf("zero-delta estimate = %#v, want insufficient without a dollar value", estimate)
 	}
