@@ -9,3 +9,8 @@ export const resolveUsageServiceLoginMode = (info?: UsageServiceInfo | null) => 
       hostedByUsageService && (info?.setupRequired === true || projectInitialized !== true),
   };
 };
+
+export const shouldAutoLoginUsageService = (info?: UsageServiceInfo | null) => {
+  const mode = resolveUsageServiceLoginMode(info);
+  return mode.hostedByUsageService && !mode.usageServiceNeedsSetup && info?.authDisabled === true;
+};

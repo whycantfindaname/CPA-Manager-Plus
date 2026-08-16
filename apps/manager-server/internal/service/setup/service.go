@@ -44,6 +44,7 @@ type InfoResult struct {
 	MigrationStatus    string `json:"migrationStatus,omitempty"`
 	DataKeyReady       bool   `json:"dataKeyReady"`
 	HasHistoricalData  bool   `json:"hasHistoricalData"`
+	AuthDisabled       bool   `json:"authDisabled"`
 }
 
 type Service struct {
@@ -88,12 +89,13 @@ func (s *Service) Info(ctx context.Context) (InfoResult, error) {
 		Mode:               "embedded",
 		StartedAt:          s.startedAt,
 		Configured:         projectInitialized,
-		AdminReady:         adminReady,
+		AdminReady:         adminReady || s.cfg.DisableAuth,
 		ProjectInitialized: projectInitialized,
-		SetupRequired:      adminReady && !projectInitialized,
+		SetupRequired:      (adminReady || s.cfg.DisableAuth) && !projectInitialized,
 		MigrationStatus:    bootstrapState.Status,
 		DataKeyReady:       bootstrapState.DataKeyReady,
 		HasHistoricalData:  bootstrapState.HasHistoricalData,
+		AuthDisabled:       s.cfg.DisableAuth,
 	}, nil
 }
 

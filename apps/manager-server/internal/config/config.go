@@ -3,6 +3,8 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -32,6 +34,7 @@ type Config struct {
 	CPAUpstreamURL               string
 	ManagementKey                string
 	AdminKey                     string
+	DisableAuth                  bool
 	DataKey                      string
 	DataKeyPath                  string
 	CollectorMode                string
@@ -68,6 +71,7 @@ type fileConfig struct {
 	CPAUpstreamURL            string   `json:"cpaUpstreamUrl,omitempty"`
 	ManagementKeyFile         string   `json:"managementKeyFile,omitempty"`
 	AdminKeyFile              string   `json:"adminKeyFile,omitempty"`
+	DisableAuth               bool     `json:"disableAuth,omitempty"`
 	DataKeyFile               string   `json:"dataKeyFile,omitempty"`
 	DataKeyPath               string   `json:"dataKeyPath,omitempty"`
 	CollectorMode             string   `json:"collectorMode,omitempty"`
@@ -135,13 +139,14 @@ func LoadWithOptions(options LoadOptions) (Config, error) {
 		dataKeyPath = filepath.Join(dataDir, "data.key")
 	}
 
-	return Config{
+	cfg := Config{
 		HTTPAddr:                     env("HTTP_ADDR", stringFallback(cfgFile.HTTPAddr, "0.0.0.0:18317")),
 		DataDir:                      dataDir,
 		DBPath:                       env("USAGE_DB_PATH", dbPathFallback),
 		CPAUpstreamURL:               env("CPA_UPSTREAM_URL", cfgFile.CPAUpstreamURL),
 		ManagementKey:                readSecret("CPA_MANAGEMENT_KEY", "CPA_MANAGEMENT_KEY_FILE", managementKeyFile),
 		AdminKey:                     readSecret("CPA_MANAGER_ADMIN_KEY", "CPA_MANAGER_ADMIN_KEY_FILE", adminKeyFile),
+		DisableAuth:                  envBool("CPA_MANAGER_DISABLE_AUTH", cfgFile.DisableAuth),
 		DataKey:                      readSecret("CPA_MANAGER_DATA_KEY", "CPA_MANAGER_DATA_KEY_FILE", dataKeyFile),
 		DataKeyPath:                  env("CPA_MANAGER_DATA_KEY_PATH", dataKeyPath),
 		CollectorMode:                normalizeCollectorMode(env("USAGE_COLLECTOR_MODE", stringFallback(cfgFile.CollectorMode, "auto"))),
@@ -177,7 +182,44 @@ func LoadWithOptions(options LoadOptions) (Config, error) {
 		QuotaCooldownEnvSet:      hasEnv("USAGE_QUOTA_COOLDOWN_ENABLED"),
 		AccountActionsEnvSet:     hasEnv("USAGE_ACCOUNT_ACTIONS_ENABLED"),
 		AccountActionsAutoEnvSet: hasEnv("USAGE_ACCOUNT_ACTIONS_AUTO_DISABLE"),
-	}, nil
+	}
+	if err := validateAuthConfig(cfg); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+func validateAuthConfig(cfg Config) error {
+	if !cfg.DisableAuth {
+		return nil
+	}
+	if !isLoopbackHostPort(cfg.HTTPAddr) {
+		return fmt.Errorf("disableAuth requires a loopback httpAddr, got %q", cfg.HTTPAddr)
+	}
+	for _, origin := range cfg.CORSOrigins {
+		if origin == "*" {
+			return fmt.Errorf("disableAuth does not allow wildcard CORS origins")
+		}
+		parsed, err := url.Parse(origin)
+		if err != nil || parsed.Scheme == "" || parsed.Hostname() == "" || !isLoopbackHost(parsed.Hostname()) {
+			return fmt.Errorf("disableAuth requires loopback CORS origins, got %q", origin)
+		}
+	}
+	return nil
+}
+
+func isLoopbackHostPort(address string) bool {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(address))
+	return err == nil && isLoopbackHost(host)
+}
+
+func isLoopbackHost(host string) bool {
+	host = strings.TrimSpace(strings.Trim(host, "[]"))
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func loadFileConfig(options LoadOptions) (fileConfig, string, error) {

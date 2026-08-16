@@ -71,6 +71,9 @@ func Run(ctx context.Context, cfg config.Config, st *store.Store, dataKeyCreated
 }
 
 func ensureAdminCredential(ctx context.Context, cfg config.Config, st *store.Store) (bool, string, error) {
+	if cfg.DisableAuth {
+		return false, "", nil
+	}
 	if _, ok, err := st.LoadAdminCredential(ctx); err != nil || ok {
 		return false, "", err
 	}

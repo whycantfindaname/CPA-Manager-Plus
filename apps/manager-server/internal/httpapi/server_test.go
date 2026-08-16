@@ -183,6 +183,37 @@ func TestInfoReportsConfiguredState(t *testing.T) {
 	}
 }
 
+func TestPasswordlessModeRequiresLoopbackHostAndAcceptsEmptyAuthorization(t *testing.T) {
+	cfg := testutil.NewConfig(t)
+	cfg.DisableAuth = true
+	cfg.CORSOrigins = []string{"http://127.0.0.1:18317"}
+	handler := newTestHandlerWithConfig(t, cfg)
+
+	infoReq := httptest.NewRequest(http.MethodGet, "/usage-service/info", nil)
+	infoReq.Host = "127.0.0.1:18317"
+	infoRR := httptest.NewRecorder()
+	handler.ServeHTTP(infoRR, infoReq)
+	if infoRR.Code != http.StatusOK || !strings.Contains(infoRR.Body.String(), `"authDisabled":true`) {
+		t.Fatalf("info status=%d body=%s", infoRR.Code, infoRR.Body.String())
+	}
+
+	statusReq := httptest.NewRequest(http.MethodGet, "/status", nil)
+	statusReq.Host = "127.0.0.1:18317"
+	statusRR := httptest.NewRecorder()
+	handler.ServeHTTP(statusRR, statusReq)
+	if statusRR.Code != http.StatusOK {
+		t.Fatalf("passwordless status=%d body=%s", statusRR.Code, statusRR.Body.String())
+	}
+
+	remoteHostReq := httptest.NewRequest(http.MethodGet, "/status", nil)
+	remoteHostReq.Host = "panel.example.com:18317"
+	remoteHostRR := httptest.NewRecorder()
+	handler.ServeHTTP(remoteHostRR, remoteHostReq)
+	if remoteHostRR.Code != http.StatusForbidden {
+		t.Fatalf("remote host status=%d body=%s", remoteHostRR.Code, remoteHostRR.Body.String())
+	}
+}
+
 func TestUsageImportAcceptsLegacyExportAndSkipsDuplicates(t *testing.T) {
 	handler := newTestHandler(t, "http://example.test", true)
 	payload := `{

@@ -38,7 +38,7 @@ import { LANGUAGE_LABEL_KEYS, LANGUAGE_ORDER } from '@/utils/constants';
 import { isSupportedLanguage } from '@/utils/language';
 import { INLINE_LOGO_JPEG } from '@/assets/logoInline';
 import type { ApiError } from '@/types';
-import { resolveUsageServiceLoginMode } from './loginMode';
+import { resolveUsageServiceLoginMode, shouldAutoLoginUsageService } from './loginMode';
 import styles from './LoginPage.module.scss';
 
 type RedirectState = { from?: { pathname?: string } };
@@ -134,6 +134,7 @@ export function LoginPage() {
   const [error, setError] = useState('');
   const [hostedByUsageService, setHostedByUsageService] = useState(false);
   const [usageServiceNeedsSetup, setUsageServiceNeedsSetup] = useState(false);
+  const [authDisabled, setAuthDisabled] = useState(false);
   const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
   const [hasHistoricalData, setHasHistoricalData] = useState(false);
   const [migrationStatus, setMigrationStatus] = useState('');
@@ -154,14 +155,14 @@ export function LoginPage() {
 
   const usageSetupSteps = useMemo<UsageSetupStep[]>(
     () => [
-      'admin',
+      ...(!authDisabled ? (['admin'] as UsageSetupStep[]) : []),
       'connection',
       'cpaKey',
       'monitoring',
       ...(requestMonitoringEnabled ? (['polling'] as UsageSetupStep[]) : []),
       'review',
     ],
-    [requestMonitoringEnabled]
+    [authDisabled, requestMonitoringEnabled]
   );
   const usageSetupStepIndex = Math.max(0, usageSetupSteps.indexOf(usageSetupStep));
   const usageSetupIsFirstStep = usageSetupStepIndex <= 0;
@@ -224,13 +225,16 @@ export function LoginPage() {
       try {
         let detectedUsageService = false;
         let detectedUsageServiceConfigured = false;
+        let detectedAuthDisabled = false;
         try {
           const info = await usageServiceApi.getInfo(detectedBase);
           const mode = resolveUsageServiceLoginMode(info);
           detectedUsageService = mode.hostedByUsageService;
           detectedUsageServiceConfigured = detectedUsageService && !mode.usageServiceNeedsSetup;
+          detectedAuthDisabled = shouldAutoLoginUsageService(info);
           setHostedByUsageService(mode.hostedByUsageService);
           setUsageServiceNeedsSetup(mode.usageServiceNeedsSetup);
+          setAuthDisabled(detectedAuthDisabled);
           setHasHistoricalData(Boolean(info.hasHistoricalData));
           setMigrationStatus(info.migrationStatus || '');
         } catch {
@@ -238,6 +242,7 @@ export function LoginPage() {
           detectedUsageServiceConfigured = false;
           setHostedByUsageService(false);
           setUsageServiceNeedsSetup(false);
+          setAuthDisabled(false);
           setHasHistoricalData(false);
           setMigrationStatus('');
         }
@@ -246,6 +251,25 @@ export function LoginPage() {
           typeof window !== 'undefined' && /\/management\.html$/i.test(window.location.pathname);
         const autoLoginExpectedPanelBase =
           detectedUsageService || hostedManagementPage ? detectedBase : undefined;
+
+        if (detectedAuthDisabled && detectedUsageServiceConfigured) {
+          setUsageServiceConfig(
+            { enabled: true, serviceBase: detectedBase },
+            { panelBase: detectedBase, panelHostMode: 'manager_embedded' }
+          );
+          await login({
+            apiBase: detectedBase,
+            managementKey: '',
+            rememberPassword: false,
+            sessionMode: 'manager_embedded',
+            sessionPanelBase: detectedBase,
+          });
+          navigate((location.state as RedirectState | null)?.from?.pathname || '/', {
+            replace: true,
+          });
+          return;
+        }
+
         const autoLoggedIn = await restoreSession({
           expectedMode: detectedUsageService ? 'manager_embedded' : 'external_panel',
           expectedPanelBase: autoLoginExpectedPanelBase,
@@ -308,13 +332,13 @@ export function LoginPage() {
 
   useEffect(() => {
     if (!usageSetupSteps.includes(usageSetupStep)) {
-      setUsageSetupStep('review');
+      setUsageSetupStep(usageSetupSteps[0] || 'review');
     }
   }, [usageSetupStep, usageSetupSteps]);
 
   const validateUsageSetupStep = useCallback(
     (step: UsageSetupStep) => {
-      if (step === 'admin' && !adminKey.trim()) {
+      if (step === 'admin' && !authDisabled && !adminKey.trim()) {
         setError(t('login.admin_key_required'));
         return false;
       }
@@ -340,7 +364,7 @@ export function LoginPage() {
       setError('');
       return true;
     },
-    [adminKey, apiBase, cpaManagementKey, pollIntervalMs, t]
+    [adminKey, apiBase, authDisabled, cpaManagementKey, pollIntervalMs, t]
   );
 
   const handleUsageSetupNext = useCallback(() => {
@@ -368,7 +392,7 @@ export function LoginPage() {
     const baseToUse = apiBase ? normalizeApiBase(apiBase) : detectedBase;
 
     if (usageServiceNeedsSetup) {
-      if (!trimmedAdminKey) {
+      if (!authDisabled && !trimmedAdminKey) {
         setError(t('login.admin_key_required'));
         return;
       }
@@ -381,7 +405,7 @@ export function LoginPage() {
         return;
       }
     } else if (isManagerServerMode) {
-      if (!trimmedAdminKey) {
+      if (!authDisabled && !trimmedAdminKey) {
         setError(t('login.admin_key_required'));
         return;
       }
@@ -453,6 +477,7 @@ export function LoginPage() {
   }, [
     adminKey,
     apiBase,
+    authDisabled,
     cpaManagementKey,
     detectedBase,
     handleUsageSetupNext,
@@ -523,11 +548,7 @@ export function LoginPage() {
             <IconLanguages size={17} />
           </button>
           {languageMenuOpen && (
-            <div
-              className={styles.languagePopover}
-              role="menu"
-              aria-label={t('language.switch')}
-            >
+            <div className={styles.languagePopover} role="menu" aria-label={t('language.switch')}>
               {LANGUAGE_ORDER.map((lang) => (
                 <button
                   key={lang}
@@ -563,7 +584,9 @@ export function LoginPage() {
               usageServiceNeedsSetup ? styles.setupFormContent : ''
             }`}
           >
-            <div className={`${styles.loginCard} ${usageServiceNeedsSetup ? styles.setupCard : ''}`}>
+            <div
+              className={`${styles.loginCard} ${usageServiceNeedsSetup ? styles.setupCard : ''}`}
+            >
               <div className={styles.cardBranding}>
                 <img src={INLINE_LOGO_JPEG} alt="CPA Manager Plus" className={styles.logo} />
                 <h1>CPA Manager Plus</h1>
@@ -849,7 +872,9 @@ export function LoginPage() {
                     label={loginCredentialLabel}
                     placeholder={loginCredentialPlaceholder}
                     type={
-                      (isManagerServerMode ? showAdminKey : showCPAManagementKey) ? 'text' : 'password'
+                      (isManagerServerMode ? showAdminKey : showCPAManagementKey)
+                        ? 'text'
+                        : 'password'
                     }
                     value={loginCredential}
                     onChange={(event) =>

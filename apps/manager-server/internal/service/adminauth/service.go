@@ -19,6 +19,9 @@ func New(cfg config.Config, store *store.Store) *Service {
 }
 
 func (s *Service) VerifyHeader(ctx context.Context, authorizationHeader string) (bool, error) {
+	if s.cfg.DisableAuth {
+		return true, nil
+	}
 	credential, ok, err := s.store.LoadAdminCredential(ctx)
 	if err != nil {
 		return false, err

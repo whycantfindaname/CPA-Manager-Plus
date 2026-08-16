@@ -193,6 +193,7 @@ Do not use `127.0.0.1` from inside a container to reach CPA on the host. Inside 
 | `CPA_MANAGER_DATA_KEY_PATH`  | `/data/data.key`                  | Data key path.                                   |
 | `CPA_MANAGER_ADMIN_KEY`      | empty                             | Explicit Manager Server admin key.               |
 | `CPA_MANAGER_ADMIN_KEY_FILE` | `/run/secrets/cpa_admin_key`      | Read the admin key from a file.                  |
+| `CPA_MANAGER_DISABLE_AUTH`   | `false`                           | Disable login for a loopback-only local panel.   |
 | `CPA_MANAGER_DATA_KEY`       | empty                             | Explicit data encryption key.                    |
 | `CPA_MANAGER_DATA_KEY_FILE`  | `/run/secrets/cpa_data_key`       | Read the data encryption key from a file.        |
 | `CPA_UPSTREAM_URL`           | empty                             | Optional environment-managed CPA URL.            |
@@ -202,6 +203,11 @@ Do not use `127.0.0.1` from inside a container to reach CPA on the host. Inside 
 | `USAGE_BATCH_SIZE`           | `100`                             | Max collected records per batch.                 |
 | `USAGE_POLL_INTERVAL_MS`     | `500`                             | Idle poll interval.                              |
 | `USAGE_QUERY_LIMIT`          | `50000`                           | Max recent usage events returned.                |
+
+`CPA_MANAGER_DISABLE_AUTH=true` is accepted only when `HTTP_ADDR` binds to
+`127.0.0.1`, `::1`, or `localhost`. Wildcard and non-loopback CORS origins are
+rejected, and requests must use a loopback `Host` header. Keep authentication
+enabled for containers, reverse proxies, LAN access, and other shared hosts.
 
 For the full runtime reference, see [Manager Server Guide](../operations/manager-server.md).
 

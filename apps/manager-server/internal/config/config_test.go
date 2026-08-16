@@ -197,6 +197,43 @@ func TestLoadEnvOverridesConfig(t *testing.T) {
 	}
 }
 
+func TestLoadAllowsPasswordlessModeOnlyOnLoopback(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		httpAddr  string
+		origins   string
+		wantError string
+	}{
+		{name: "loopback", httpAddr: "127.0.0.1:18317", origins: "http://127.0.0.1:18317"},
+		{name: "public bind", httpAddr: "0.0.0.0:18317", origins: "http://127.0.0.1:18317", wantError: "loopback httpAddr"},
+		{name: "wildcard cors", httpAddr: "127.0.0.1:18317", origins: "*", wantError: "wildcard CORS"},
+		{name: "remote cors", httpAddr: "127.0.0.1:18317", origins: "https://panel.example.com", wantError: "loopback CORS"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clearConfigEnv(t)
+			dir := t.TempDir()
+			t.Setenv(configEnvKey, filepath.Join(dir, "config.json"))
+			t.Setenv("HTTP_ADDR", tc.httpAddr)
+			t.Setenv("CPA_MANAGER_DISABLE_AUTH", "true")
+			t.Setenv("USAGE_CORS_ORIGINS", tc.origins)
+
+			cfg, err := Load()
+			if tc.wantError != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantError) {
+					t.Fatalf("Load() error = %v, want %q", err, tc.wantError)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if !cfg.DisableAuth {
+				t.Fatal("DisableAuth = false")
+			}
+		})
+	}
+}
+
 func TestNormalizeCollectorMode(t *testing.T) {
 	cases := []struct {
 		input string
@@ -235,6 +272,7 @@ func clearConfigEnv(t *testing.T) {
 		"USAGE_POLL_INTERVAL_MS",
 		"USAGE_QUERY_LIMIT",
 		"CPA_MANAGER_PPROF_ADDR",
+		"CPA_MANAGER_DISABLE_AUTH",
 		"USAGE_CORS_ORIGINS",
 		"USAGE_RESP_TLS_SKIP_VERIFY",
 		"USAGE_QUOTA_COOLDOWN_ENABLED",

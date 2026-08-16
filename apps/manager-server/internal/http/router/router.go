@@ -52,7 +52,11 @@ func New(appCtx *app.Context) http.Handler {
 	mux.HandleFunc("/management.html", panelHandler.ManagementHTML)
 	mux.HandleFunc("/", rootHandler(appCtx, usageHandler, modelPriceHandler, apiKeyAliasHandler, accountActionHandler, codexInspectionHandler, dashboardHandler, monitoringHandler, proxyHandler))
 
-	return middleware.Recovery(middleware.RequestLogger(mux))
+	handler := http.Handler(mux)
+	if appCtx.Config.DisableAuth {
+		handler = middleware.LoopbackHostOnly(handler)
+	}
+	return middleware.Recovery(middleware.RequestLogger(handler))
 }
 
 func rootHandler(

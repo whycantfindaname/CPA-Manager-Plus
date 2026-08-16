@@ -77,6 +77,7 @@ export interface UsageServiceInfo {
   migrationStatus?: string;
   dataKeyReady?: boolean;
   hasHistoricalData?: boolean;
+  authDisabled?: boolean;
 }
 
 export interface UsageServiceCollectorStatus {

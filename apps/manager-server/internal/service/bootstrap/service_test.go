@@ -90,6 +90,26 @@ func TestRunMigratesLegacySetupAndEncryptsSecrets(t *testing.T) {
 	}
 }
 
+func TestRunDoesNotCreateAdminCredentialWhenAuthDisabled(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "usage.sqlite")
+	st, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	result, err := Run(context.Background(), config.Config{DisableAuth: true}, st, false)
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	if result.AdminCreated || result.GeneratedAdminKey != "" {
+		t.Fatalf("admin credential result = %#v", result)
+	}
+	if _, ok, err := st.LoadAdminCredential(context.Background()); err != nil || ok {
+		t.Fatalf("admin credential ok=%v err=%v, want absent", ok, err)
+	}
+}
+
 func rawBootstrapSettingValue(t testing.TB, dbPath string, key string) string {
 	t.Helper()
 	db, err := sql.Open("sqlite", dbPath)

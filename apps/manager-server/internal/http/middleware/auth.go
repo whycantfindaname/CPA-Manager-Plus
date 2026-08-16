@@ -3,13 +3,31 @@ package middleware
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
+	"strings"
 
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/response"
 )
 
 type AdminVerifier interface {
 	VerifyHeader(ctx context.Context, authorizationHeader string) (bool, error)
+}
+
+func LoopbackHostOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := strings.TrimSpace(r.Host)
+		if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+			host = parsedHost
+		}
+		host = strings.Trim(strings.TrimSpace(host), "[]")
+		ip := net.ParseIP(host)
+		if !strings.EqualFold(host, "localhost") && (ip == nil || !ip.IsLoopback()) {
+			response.Error(w, http.StatusForbidden, errors.New("passwordless access requires a loopback host"))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 type PanelVerifier interface {

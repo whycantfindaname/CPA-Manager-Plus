@@ -70,6 +70,8 @@ func runServer() {
 	}
 	if bootstrapResult.GeneratedAdminKey != "" {
 		log.Printf("CPA Manager Plus admin key generated: %s", bootstrapResult.GeneratedAdminKey)
+	} else if cfg.DisableAuth {
+		log.Printf("CPA Manager Plus authentication disabled for loopback-only access")
 	} else {
 		log.Printf("CPA Manager Plus admin credential initialized")
 	}
