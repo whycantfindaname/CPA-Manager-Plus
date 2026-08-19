@@ -286,6 +286,50 @@ export interface CodexInspectionQuotaWindow {
   limitWindowSeconds?: number | null;
 }
 
+export interface LocalCodexQuotaWindow {
+  usedPercent?: number | null;
+  windowDurationMins?: number | null;
+  resetsAt?: number | null;
+}
+
+export interface LocalCodexQuotaBucket {
+  id: string;
+  name?: string;
+  planType?: string;
+  primary?: LocalCodexQuotaWindow | null;
+  secondary?: LocalCodexQuotaWindow | null;
+}
+
+export interface LocalCodexSessionSnapshot {
+  capturedAtMs: number;
+  account: {
+    type?: string;
+    planType?: string;
+    email?: string;
+  };
+  quotaBuckets: LocalCodexQuotaBucket[];
+  usage: {
+    summary: {
+      lifetimeTokens?: number | null;
+      peakDailyTokens?: number | null;
+      longestRunningTurnSec?: number | null;
+      currentStreakDays?: number | null;
+      longestStreakDays?: number | null;
+    };
+    dailyUsageBuckets?: Array<{
+      startDate: string;
+      tokens: number;
+    }>;
+  };
+}
+
+export interface LocalCodexSessionResponse {
+  status: 'available' | 'unavailable';
+  source: 'codex_app_server';
+  reason?: 'codex_executable_not_found' | 'app_server_failed' | string;
+  snapshot?: LocalCodexSessionSnapshot;
+}
+
 export interface CodexWeeklyPoolEstimate {
   official: boolean;
   basis: string;
@@ -2234,6 +2278,30 @@ export const usageServiceApi = {
           timeout: USAGE_SERVICE_TIMEOUT_MS,
           headers: authHeaders(managementKey),
           params: { limit },
+        }
+      );
+      return response.data;
+    });
+  },
+
+  getLocalCodexSession: async (
+    base: string,
+    managementKey?: string
+  ): Promise<LocalCodexSessionResponse> => {
+    if (__DEMO_SITE__ && isDemoMode()) {
+      return {
+        status: 'unavailable',
+        source: 'codex_app_server',
+        reason: 'codex_executable_not_found',
+      };
+    }
+
+    return withUsageServiceError(async () => {
+      const response = await axios.get<LocalCodexSessionResponse>(
+        buildUrl(base, '/v0/management/codex-inspection/local-session'),
+        {
+          timeout: CODEX_INSPECTION_RUN_TIMEOUT_MS,
+          headers: authHeaders(managementKey),
         }
       );
       return response.data;

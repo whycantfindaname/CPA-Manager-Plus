@@ -9,6 +9,7 @@ import { Select, type SelectOption } from '@/components/ui/Select';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { CodexInspectionConfigOverview } from '@/features/monitoring/components/CodexInspectionConfigOverview';
 import { CodexInspectionLogsPanel } from '@/features/monitoring/components/CodexInspectionLogsPanel';
+import { LocalCodexSessionPanel } from '@/features/monitoring/components/LocalCodexSessionPanel';
 import { CodexInspectionModeTabs } from '@/features/monitoring/components/CodexInspectionModeTabs';
 import { Panel } from '@/features/monitoring/components/CodexInspectionPanels';
 import { CodexInspectionResultsPanel } from '@/features/monitoring/components/CodexInspectionResultsPanel';
@@ -70,6 +71,7 @@ import {
   type CodexInspectionResult,
   type CodexInspectionRun,
   type CodexInspectionRunDetail,
+  type LocalCodexSessionResponse,
   type ManagerCodexInspectionConfig,
   type ManagerCodexInspectionScheduleMode,
   type ManagerConfig,
@@ -686,6 +688,11 @@ export function ServerCodexInspectionPage() {
   const [runs, setRuns] = useState<CodexInspectionRun[]>([]);
   const [detail, setDetail] = useState<CodexInspectionRunDetail | null>(null);
   const [headerSnapshots, setHeaderSnapshots] = useState<UsageHeaderSnapshot[]>([]);
+  const [localCodexSession, setLocalCodexSession] = useState<LocalCodexSessionResponse | null>(
+    null
+  );
+  const [localCodexSessionLoading, setLocalCodexSessionLoading] = useState(false);
+  const [localCodexSessionError, setLocalCodexSessionError] = useState('');
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -706,6 +713,7 @@ export function ServerCodexInspectionPage() {
   const [configFocusField, setConfigFocusField] = useState<string | null>(null);
   const [codexReauthTarget, setCodexReauthTarget] = useState<CodexReauthTarget | null>(null);
   const refreshInFlightRef = useRef(false);
+  const localCodexSessionInFlightRef = useRef(false);
   const actionInFlightRef = useRef(false);
   const detailRequestGenerationRef = useRef(0);
   const runListMutationGenerationRef = useRef(0);
@@ -753,6 +761,25 @@ export function ServerCodexInspectionPage() {
       return nextDetail;
     },
     [managementKey]
+  );
+
+  const loadLocalCodexSession = useCallback(
+    async (base = serviceBase) => {
+      if (!base || localCodexSessionInFlightRef.current) return;
+      localCodexSessionInFlightRef.current = true;
+      setLocalCodexSessionLoading(true);
+      setLocalCodexSessionError('');
+      try {
+        const response = await usageServiceApi.getLocalCodexSession(base, managementKey);
+        setLocalCodexSession(response);
+      } catch (error: unknown) {
+        setLocalCodexSessionError(getUsageServiceDisplayError(error, t));
+      } finally {
+        localCodexSessionInFlightRef.current = false;
+        setLocalCodexSessionLoading(false);
+      }
+    },
+    [managementKey, serviceBase, t]
   );
 
   useEffect(() => {
@@ -811,12 +838,12 @@ export function ServerCodexInspectionPage() {
   ]);
 
   useEffect(() => {
+    if (!serviceBase || localCodexSession) return;
+    void loadLocalCodexSession(serviceBase);
+  }, [loadLocalCodexSession, localCodexSession, serviceBase]);
+
+  useEffect(() => {
     if (featureAvailability.checking) {
-      return;
-    }
-    if (!managementKey) {
-      setLoading(false);
-      setError(t('monitoring.server_codex_inspection_connection_required'));
       return;
     }
     if (!featureAvailability.serverCodexInspectionAvailable) {
@@ -854,6 +881,15 @@ export function ServerCodexInspectionPage() {
   const activeTone = getRunTone(activeRun);
 
   const resultRows = useMemo(() => detail?.results ?? [], [detail?.results]);
+  const localCodexSessionComparison = useMemo(() => {
+    const email = localCodexSession?.snapshot?.account.email?.trim().toLowerCase();
+    if (!email) return null;
+    return (
+      resultRows.find(
+        (item) => item.provider === 'codex' && item.displayAccount.trim().toLowerCase() === email
+      ) ?? null
+    );
+  }, [localCodexSession?.snapshot?.account.email, resultRows]);
   const headerSnapshotCutoffMs =
     detail?.run.finishedAtMs ?? detail?.run.updatedAtMs ?? Number.POSITIVE_INFINITY;
   const headerSnapshotLookup = useMemo(
@@ -2094,6 +2130,15 @@ export function ServerCodexInspectionPage() {
         </div>
       ) : null}
       {renderStatusPanel()}
+      <LocalCodexSessionPanel
+        response={localCodexSession}
+        comparison={localCodexSessionComparison}
+        loading={localCodexSessionLoading}
+        error={localCodexSessionError}
+        locale={i18n.language}
+        t={t}
+        onRefresh={() => void loadLocalCodexSession()}
+      />
       <div className={styles.serverDetailGrid}>
         {renderRunsPanel()}
         <div className={styles.serverDetailPanels}>

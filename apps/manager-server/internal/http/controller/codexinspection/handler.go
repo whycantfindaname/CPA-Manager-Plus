@@ -24,6 +24,12 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	path := strings.Trim(strings.TrimRight(r.URL.Path, "/"), " ")
 	switch {
+	case path == "/v0/management/codex-inspection/local-session":
+		if r.Method != http.MethodGet {
+			response.MethodNotAllowed(w)
+			return
+		}
+		response.JSON(w, http.StatusOK, h.App.CodexInspectionService.ReadLocalCodexSession(r.Context()))
 	case path == "/v0/management/codex-inspection/run":
 		if r.Method != http.MethodPost {
 			response.MethodNotAllowed(w)

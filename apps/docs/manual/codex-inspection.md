@@ -28,6 +28,24 @@ description: 使用 CPA Manager Plus 在本地或 Manager Server 定时巡检 Co
 
 缺失字段保持未知，不会被当作健康或异常。
 
+## Manager 主机上的 Codex 登录
+
+服务端巡检页还可以直接读取 Manager Server 主机上的 Codex 登录。Manager
+Server 启动本机 `codex app-server`，通过官方的 `account/read`、
+`account/rateLimits/read` 和 `account/usage/read` RPC 获取当前登录身份、额度窗口
+和每日 token 活动。这条路径不要求账号登记在 CPA，也不会读取或返回 OAuth
+令牌。
+
+默认使用 `PATH` 中的 `codex`。原生服务找不到命令时，可将
+`CPAMP_CODEX_EXECUTABLE` 设置为 Codex CLI 的绝对路径。该区域读取的是 Manager
+Server 所在主机，不是打开网页的浏览器主机；远程 Manager Server 没有 Codex
+CLI 或未登录时会显示不可用，CPA 凭证巡检仍可继续使用。
+
+一个 app-server 进程只代表一个 `CODEX_HOME` 登录。当前版本自动读取 Manager
+主机的默认登录；CPA 中的其他账号仍由原有凭证巡检覆盖。每日 token 是账号活动
+总量，不含模型、输入/输出、缓存或 service tier 拆分，不能据此计算 API 等价
+成本或 weekly pool 美元估值。
+
 ## xAI 检查内容
 
 xAI 巡检优先使用不发送模型推理请求的只读证据：

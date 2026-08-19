@@ -72,6 +72,7 @@ type Service struct {
 	managerConfigService *managerconfig.Service
 	client               *http.Client
 	authFileMutations    *cpaauthfiles.MutationCoordinator
+	localSessionReader   LocalCodexSessionReader
 
 	mu                             sync.Mutex
 	cancelMu                       sync.Mutex
@@ -98,6 +99,7 @@ type ServiceOptions struct {
 	LeaseDuration               time.Duration
 	HeartbeatInterval           time.Duration
 	AuthFileMutationCoordinator *cpaauthfiles.MutationCoordinator
+	LocalSessionReader          LocalCodexSessionReader
 }
 
 var inspectionOwnerSequence atomic.Uint64
@@ -310,11 +312,16 @@ func NewWithOptions(st *store.Store, managerConfigService *managerconfig.Service
 	if authFileMutations == nil {
 		authFileMutations = cpaauthfiles.NewMutationCoordinator()
 	}
+	localSessionReader := options.LocalSessionReader
+	if localSessionReader == nil {
+		localSessionReader = NewAppServerSessionReader()
+	}
 	return &Service{
 		store:                          st,
 		managerConfigService:           managerConfigService,
 		client:                         client,
 		authFileMutations:              authFileMutations,
+		localSessionReader:             localSessionReader,
 		ownerID:                        ownerID,
 		leaseDuration:                  leaseDuration,
 		heartbeatInterval:              heartbeatInterval,

@@ -39,6 +39,7 @@ export interface ResolvePanelFeatureAvailabilityInput {
   managerConfig: ManagerConfig | null;
   hasManagerCandidate: boolean;
   managementKey: string;
+  authDisabled?: boolean;
 }
 
 const normalizeBase = (value?: string) => normalizeUsageServiceBase(value || '');
@@ -63,7 +64,7 @@ const buildUnavailableState = (
 export function resolvePanelFeatureAvailability(
   input: ResolvePanelFeatureAvailabilityInput
 ): PanelFeatureAvailability {
-  if (!input.managementKey) {
+  if (!input.managementKey && input.authDisabled !== true) {
     return buildUnavailableState(input, 'service_not_configured');
   }
   if (!input.panelHostedByUsageService) {
@@ -80,7 +81,7 @@ export function resolvePanelFeatureAvailability(
 
   const hasCPAConnection = Boolean(
     input.managerConfig.cpaConnection?.cpaBaseUrl &&
-      input.managerConfig.cpaConnection?.managementKey
+    input.managerConfig.cpaConnection?.managementKey
   );
   const collectorEnabled = input.managerConfig.collector?.enabled !== false;
   const requestMonitoringAvailable = hasCPAConnection && collectorEnabled;
@@ -195,7 +196,17 @@ async function detectPanelFeatureAvailability({
   panelBase,
 }: PanelFeatureAvailabilityRequestInput): Promise<PanelFeatureAvailability> {
   const normalizedPanelBase = normalizeBase(panelBase);
-  if (!managementKey) {
+  let panelHostedByUsageService = false;
+  let authDisabled = false;
+  try {
+    const info = await usageServiceApi.getInfo(normalizedPanelBase);
+    panelHostedByUsageService = isUsageServiceId(info.service);
+    authDisabled = panelHostedByUsageService && info.authDisabled === true;
+  } catch {
+    panelHostedByUsageService = false;
+  }
+
+  if (!managementKey && !authDisabled) {
     return resolvePanelFeatureAvailability({
       checking: false,
       panelHostedByUsageService: false,
@@ -204,15 +215,8 @@ async function detectPanelFeatureAvailability({
       managerConfig: null,
       hasManagerCandidate: false,
       managementKey,
+      authDisabled,
     });
-  }
-
-  let panelHostedByUsageService = false;
-  try {
-    const info = await usageServiceApi.getInfo(normalizedPanelBase);
-    panelHostedByUsageService = isUsageServiceId(info.service);
-  } catch {
-    panelHostedByUsageService = false;
   }
 
   const candidates = buildPanelManagerServiceCandidates({
@@ -242,6 +246,7 @@ async function detectPanelFeatureAvailability({
         managerConfig: response.config,
         hasManagerCandidate: candidates.length > 0,
         managementKey,
+        authDisabled,
       });
     } catch {
       // Continue probing; a regular CPA endpoint or unreachable Manager Server is expected here.
@@ -256,13 +261,15 @@ async function detectPanelFeatureAvailability({
     managerConfig: null,
     hasManagerCandidate: candidates.length > 0,
     managementKey,
+    authDisabled,
   });
   return unavailableState;
 }
 
-function requestPanelFeatureAvailability(
-  input: PanelFeatureAvailabilityRequestInput
-): { key: string; promise: Promise<PanelFeatureAvailability> } {
+function requestPanelFeatureAvailability(input: PanelFeatureAvailabilityRequestInput): {
+  key: string;
+  promise: Promise<PanelFeatureAvailability>;
+} {
   const key = buildAvailabilityRequestKey(input);
   if (cachedAvailabilityKey === key && cachedAvailability) {
     return { key, promise: Promise.resolve(cachedAvailability) };
@@ -302,10 +309,7 @@ export function usePanelFeatureAvailability(): PanelFeatureAvailability {
     }),
     [apiBase, managementKey, panelBase]
   );
-  const requestKey = useMemo(
-    () => buildAvailabilityRequestKey(requestInput),
-    [requestInput]
-  );
+  const requestKey = useMemo(() => buildAvailabilityRequestKey(requestInput), [requestInput]);
   const [state, setState] = useState<PanelFeatureAvailability>(() =>
     demoMode
       ? demoAvailability
@@ -344,12 +348,7 @@ export function usePanelFeatureAvailability(): PanelFeatureAvailability {
     return () => {
       cancelled = true;
     };
-  }, [
-    panelBase,
-    demoMode,
-    requestInput,
-    requestKey,
-  ]);
+  }, [panelBase, demoMode, requestInput, requestKey]);
 
   return demoMode ? demoAvailability : state;
 }

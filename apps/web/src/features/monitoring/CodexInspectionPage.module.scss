@@ -119,6 +119,99 @@
   padding: 18px;
 }
 
+.localSessionPanel {
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--inspect-accent) 24%, var(--inspect-line));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--inspect-accent) 7%, var(--inspect-surface)) 0%,
+    var(--inspect-surface) 42%
+  );
+}
+
+.localSessionTitleRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.localSessionSource {
+  padding: 5px 9px;
+  border: 1px solid var(--inspect-line);
+  border-radius: 999px;
+  background: var(--inspect-surface-muted);
+  color: var(--inspect-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.localSessionContent {
+  display: grid;
+  gap: 14px;
+}
+
+.localSessionIdentity,
+.localSessionEvidenceRow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.localSessionIdentity > div,
+.localSessionEvidenceRow > div {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--inspect-line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--inspect-surface-elevated) 90%, transparent);
+}
+
+.localSessionEvidenceRow {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.localSessionIdentity strong,
+.localSessionEvidenceRow strong {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.localSessionEvidenceRow span:last-child {
+  color: var(--inspect-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.localSessionEyebrow {
+  color: var(--inspect-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.localSessionMessage {
+  padding: 12px 14px;
+  border: 1px dashed var(--inspect-line-strong);
+  border-radius: 14px;
+  color: var(--inspect-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+@container codex-inspection-page (max-width: 720px) {
+  .localSessionIdentity,
+  .localSessionEvidenceRow {
+    grid-template-columns: 1fr;
+  }
+}
+
 .statusBar {
   display: flex;
   align-items: center;

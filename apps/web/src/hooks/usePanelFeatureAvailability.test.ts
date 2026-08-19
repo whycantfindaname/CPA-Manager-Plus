@@ -117,6 +117,21 @@ describe('panel feature availability', () => {
     expect(availability.reason).toBe('monitoring_disabled');
   });
 
+  it('allows Manager-only features without a key only when embedded auth is disabled', () => {
+    const availability = resolvePanelFeatureAvailability({
+      panelHostedByUsageService: true,
+      panelBase: 'http://manager.local:18317',
+      managerServiceBase: 'http://manager.local:18317',
+      managerConfig: buildManagerConfig(),
+      hasManagerCandidate: true,
+      managementKey: '',
+      authDisabled: true,
+    });
+
+    expect(availability.managerServiceAvailable).toBe(true);
+    expect(availability.serverCodexInspectionAvailable).toBe(true);
+  });
+
   it('keeps Manager-only features unavailable for CPA-hosted panels even with stale Manager config', () => {
     const availability = resolvePanelFeatureAvailability({
       panelHostedByUsageService: false,
@@ -136,11 +151,9 @@ describe('panel feature availability', () => {
   });
 
   it('shares one feature detection request across concurrent hook consumers', async () => {
-    const getInfoSpy = vi
-      .spyOn(usageServiceApi, 'getInfo')
-      .mockImplementation(async (base) => ({
-        service: base === 'http://manager.local:18317' ? 'cpa-manager-plus' : 'cli-proxy-api',
-      }));
+    const getInfoSpy = vi.spyOn(usageServiceApi, 'getInfo').mockImplementation(async (base) => ({
+      service: base === 'http://manager.local:18317' ? 'cpa-manager-plus' : 'cli-proxy-api',
+    }));
     const getManagerConfigSpy = vi
       .spyOn(usageServiceApi, 'getManagerConfig')
       .mockResolvedValue({ config: buildManagerConfig(), source: 'db' });
@@ -169,12 +182,7 @@ describe('panel feature availability', () => {
 
       await act(async () => {
         renderer = create(
-          createElement(
-            'div',
-            null,
-            createElement(HookConsumer),
-            createElement(HookConsumer)
-          )
+          createElement('div', null, createElement(HookConsumer), createElement(HookConsumer))
         );
       });
 
