@@ -1085,6 +1085,21 @@
   overflow-wrap: anywhere;
 }
 
+.weeklyEstimateMethod {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.weeklyEstimateMethod summary {
+  cursor: pointer;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 .weeklyEstimateEquation {
   color: var(--inspect-ink);
   font-family: var(--font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);

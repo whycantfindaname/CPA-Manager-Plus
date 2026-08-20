@@ -4632,6 +4632,16 @@ describe('Codex inspection last-run cache', () => {
     );
   });
 
+  it('creates a scoped fingerprint for passwordless manager connections', () => {
+    const fingerprint = createCodexInspectionConnectionFingerprint(
+      'http://127.0.0.1:18317/',
+      ''
+    );
+
+    expect(fingerprint).toBeTypeOf('string');
+    expect(fingerprint).not.toContain('passwordless-manager');
+  });
+
   it('sanitizes raw auth data before saving browser cache', () => {
     const storage = createStorage();
     vi.stubGlobal('localStorage', storage);

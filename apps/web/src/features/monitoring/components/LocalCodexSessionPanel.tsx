@@ -202,7 +202,13 @@ export function LocalCodexSessionPanel({
 
           {comparison?.weeklyPoolEstimate ? (
             <CodexWeeklyPoolEstimate estimate={comparison.weeklyPoolEstimate} t={t} />
-          ) : null}
+          ) : (
+            <details className={styles.weeklyEstimateMethod}>
+              <summary>{t('monitoring.codex_inspection_estimate_method_title')}</summary>
+              <span>{t('monitoring.codex_inspection_estimate_method_api')}</span>
+              <span>{t('monitoring.codex_inspection_estimate_method_credits')}</span>
+            </details>
+          )}
 
           <div className={styles.localSessionEvidenceRow}>
             <div>

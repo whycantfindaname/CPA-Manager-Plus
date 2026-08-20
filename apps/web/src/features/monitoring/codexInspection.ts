@@ -323,9 +323,11 @@ export const createCodexInspectionConnectionFingerprint = (
 ) => {
   const normalizedApiBase = readString(apiBase).replace(/\/+$/, '');
   const normalizedManagementKey = readString(managementKey);
-  if (!normalizedApiBase || !normalizedManagementKey) return null;
+  // Manager Server may be configured for loopback-only passwordless access.
+  // Scope those sessions to the normalized base URL without storing a secret.
+  if (!normalizedApiBase) return null;
 
-  const input = `${normalizedApiBase}\u0000${normalizedManagementKey}`;
+  const input = `${normalizedApiBase}\u0000${normalizedManagementKey || 'passwordless-manager'}`;
   let hashA = 0x811c9dc5;
   let hashB = 0x9e3779b9;
 

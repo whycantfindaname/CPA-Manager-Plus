@@ -100,6 +100,11 @@ export function CodexWeeklyPoolEstimate({ estimate, t }: CodexWeeklyPoolEstimate
           )}
         </span>
       ) : null}
+      <details className={styles.weeklyEstimateMethod}>
+        <summary>{t('monitoring.codex_inspection_estimate_method_title')}</summary>
+        <span>{t('monitoring.codex_inspection_estimate_method_api')}</span>
+        <span>{t('monitoring.codex_inspection_estimate_method_credits')}</span>
+      </details>
       <span className={styles.weeklyEstimateDisclaimer}>
         {t('monitoring.codex_inspection_weekly_estimate_disclaimer')}
       </span>
