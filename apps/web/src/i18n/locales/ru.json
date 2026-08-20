@@ -2719,6 +2719,7 @@
     "codex_inspection_weekly_heuristic_refresh": "$2,000 используется только без данных. Метод 2 или 3 автоматически заменит его при появлении данных аккаунта.",
     "codex_inspection_weekly_measured_refresh": "Каждая 5-минутная проверка обновляет базу: сначала метод 2, затем метод 3; иначе сохраняется последнее обученное значение.",
     "codex_inspection_weekly_credits_equation": "{{credits}} Credits текущего цикла ÷ {{percent}} weekly used × {{rate}}/Credit",
+    "codex_inspection_weekly_credits_previous_equation": "{{credits}} Credits прошлого цикла ÷ {{percent}} weekly used до сброса × {{rate}}/Credit",
     "codex_inspection_weekly_current_source": "Источник текущей базы: {{source}} · обновлено {{time}}",
     "codex_inspection_weekly_time_unknown": "время неизвестно",
     "codex_inspection_estimate_method_title": "Все методы расчёта",

@@ -1958,9 +1958,10 @@ func (s *Service) requestCodexCreditsUsage(
 	}
 	cycleStart := time.UnixMilli(weekly.ResetAtMS).Add(-time.Duration(*weekly.LimitWindowSeconds) * time.Second).In(time.Local)
 	cycleStartDate := cycleStart.Format(time.DateOnly)
+	previousCycleStartDate := cycleStart.Add(-time.Duration(*weekly.LimitWindowSeconds) * time.Second).Format(time.DateOnly)
 	endDate := time.Now().In(time.Local).AddDate(0, 0, 1).Format(time.DateOnly)
 	query := url.Values{}
-	query.Set("start_date", cycleStartDate)
+	query.Set("start_date", previousCycleStartDate)
 	query.Set("end_date", endDate)
 	query.Set("group_by", "day")
 	response, _, err := s.requestCodexURLAt(
@@ -1983,8 +1984,9 @@ func (s *Service) requestCodexCreditsUsage(
 	}
 	rows, _ := payload["data"].([]any)
 	usage := &model.CodexCreditsUsage{
-		CycleStartDate: cycleStartDate,
-		ObservedAtMS:   time.Now().UnixMilli(),
+		CycleStartDate:         cycleStartDate,
+		PreviousCycleStartDate: previousCycleStartDate,
+		ObservedAtMS:           time.Now().UnixMilli(),
 	}
 	for _, raw := range rows {
 		row, ok := raw.(map[string]any)
@@ -1998,10 +2000,12 @@ func (s *Service) requestCodexCreditsUsage(
 		if date > usage.LatestDate {
 			usage.LatestDate = date
 		}
-		if date < cycleStartDate {
-			continue
+		switch {
+		case date >= cycleStartDate:
+			usage.CurrentCycleCredits += readFloat(readMap(row, "totals")["credits"], 0)
+		case date >= previousCycleStartDate:
+			usage.PreviousCycleCredits += readFloat(readMap(row, "totals")["credits"], 0)
 		}
-		usage.CurrentCycleCredits += readFloat(readMap(row, "totals")["credits"], 0)
 	}
 	return usage, nil
 }

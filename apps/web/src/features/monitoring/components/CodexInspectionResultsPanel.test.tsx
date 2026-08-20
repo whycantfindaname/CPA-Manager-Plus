@@ -178,7 +178,9 @@ describe('CodexInspectionResultsPanel', () => {
     expect(text).toContain(
       'monitoring.codex_inspection_weekly_estimate_source_status:monitoring.codex_inspection_weekly_source_credits_learned:monitoring.codex_inspection_weekly_estimate_status_preliminary'
     );
-    expect(text).toContain('monitoring.codex_inspection_weekly_credits_equation:2000.00:4%:$0.04');
+    expect(text).toContain(
+      'monitoring.codex_inspection_weekly_credits_previous_equation:2000.00:4%:$0.04'
+    );
     expect(
       text.some((value) => value.startsWith('monitoring.codex_inspection_weekly_current_source:'))
     ).toBe(true);

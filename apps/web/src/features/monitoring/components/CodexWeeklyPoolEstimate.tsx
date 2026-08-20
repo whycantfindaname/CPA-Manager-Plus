@@ -93,9 +93,7 @@ export function CodexWeeklyPoolEstimate({
   const syncedAt = estimate.priceSyncedAtMs
     ? new Date(estimate.priceSyncedAtMs).toLocaleString()
     : '';
-  const updatedAt = estimate.updatedAtMs
-    ? new Date(estimate.updatedAtMs).toLocaleString()
-    : '';
+  const updatedAt = estimate.updatedAtMs ? new Date(estimate.updatedAtMs).toLocaleString() : '';
   const estimateSource = t(sourceKey(estimate));
 
   return (
@@ -119,11 +117,16 @@ export function CodexWeeklyPoolEstimate({
           </strong>
           <span className={styles.weeklyEstimateEquation}>
             {estimate.basis === 'credits'
-              ? t('monitoring.codex_inspection_weekly_credits_equation', {
-                  credits: (estimate.credits ?? 0).toFixed(2),
-                  percent: formatPercent(estimate.usedPercentDelta ?? 0),
-                  rate: formatUSD(estimate.usdPerCredit ?? 0.04),
-                })
+              ? t(
+                  estimate.source === 'credits_learned'
+                    ? 'monitoring.codex_inspection_weekly_credits_previous_equation'
+                    : 'monitoring.codex_inspection_weekly_credits_equation',
+                  {
+                    credits: (estimate.credits ?? 0).toFixed(2),
+                    percent: formatPercent(estimate.usedPercentDelta ?? 0),
+                    rate: formatUSD(estimate.usdPerCredit ?? 0.04),
+                  }
+                )
               : t('monitoring.codex_inspection_weekly_estimate_equation', {
                   cost: formatUSD(estimate.costDeltaUsd ?? 0),
                   percent: formatPercent(estimate.usedPercentDelta ?? 0),

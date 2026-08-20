@@ -142,7 +142,7 @@ func (s *Service) adoptWeeklyEstimateBaselines(ctx context.Context, results []mo
 			_ = s.store.UpsertCodexWeeklyEstimateBaseline(ctx, current.AuthIndex, current.AccountID, *estimate)
 			continue
 		}
-		if creditsEstimate := creditsWeeklyEstimate(*current); creditsEstimate != nil {
+		if creditsEstimate := s.creditsWeeklyEstimate(ctx, *current); creditsEstimate != nil {
 			current.WeeklyPoolEstimate = creditsEstimate
 			_ = s.store.UpsertCodexWeeklyEstimateBaseline(ctx, current.AuthIndex, current.AccountID, *creditsEstimate)
 			continue
@@ -161,28 +161,72 @@ func (s *Service) adoptWeeklyEstimateBaselines(ctx context.Context, results []mo
 	}
 }
 
-func creditsWeeklyEstimate(result model.CodexInspectionResult) *model.CodexWeeklyPoolEstimate {
+func (s *Service) creditsWeeklyEstimate(ctx context.Context, result model.CodexInspectionResult) *model.CodexWeeklyPoolEstimate {
 	weekly := standardWeeklyQuotaWindow(result.QuotaWindows)
 	usage := result.CreditsUsage
-	if weekly == nil || weekly.UsedPercent == nil || *weekly.UsedPercent < 1 || weekly.ResetAtMS <= 0 ||
-		usage == nil || usage.CurrentCycleCredits <= 0 || usage.CycleStartDate == "" || usage.LatestDate < usage.CycleStartDate {
+	if weekly == nil || weekly.UsedPercent == nil || weekly.ResetAtMS <= 0 || usage == nil {
 		return nil
 	}
-	value := usage.CurrentCycleCredits / (*weekly.UsedPercent / 100) * weeklyEstimateUSDPerCredit
+	credits := usage.CurrentCycleCredits
+	usedPercent := *weekly.UsedPercent
+	source := weeklyEstimateSourceCreditsCurrent
+	baselineAtMS := int64(0)
+	resetAtMS := weekly.ResetAtMS
+	if credits <= 0 || usedPercent < 1 || usage.CycleStartDate == "" || usage.LatestDate < usage.CycleStartDate {
+		previous, found := s.previousWeeklySample(ctx, result, weekly.ResetAtMS-int64(codexWeekWindow)*1000)
+		previousWindow := standardWeeklyQuotaWindow(previous.QuotaWindows)
+		if !found || previousWindow == nil || previousWindow.UsedPercent == nil || *previousWindow.UsedPercent < 1 || usage.PreviousCycleCredits <= 0 {
+			return nil
+		}
+		credits = usage.PreviousCycleCredits
+		usedPercent = *previousWindow.UsedPercent
+		source = weeklyEstimateSourceCreditsLearned
+		baselineAtMS = previous.CreatedAtMS
+		resetAtMS = previousWindow.ResetAtMS
+	}
+	value := credits / (usedPercent / 100) * weeklyEstimateUSDPerCredit
 	return &model.CodexWeeklyPoolEstimate{
 		Official:         false,
 		Basis:            weeklyEstimateBasisCredits,
-		Source:           weeklyEstimateSourceCreditsCurrent,
+		Source:           source,
 		Status:           weeklyEstimateStatusPreliminary,
 		WeeklyPoolUSD:    &value,
-		CostDeltaUSD:     usage.CurrentCycleCredits * weeklyEstimateUSDPerCredit,
-		UsedPercentDelta: *weekly.UsedPercent,
+		CostDeltaUSD:     credits * weeklyEstimateUSDPerCredit,
+		UsedPercentDelta: usedPercent,
+		BaselineAtMS:     baselineAtMS,
 		CurrentAtMS:      result.CreatedAtMS,
-		WeeklyResetAtMS:  weekly.ResetAtMS,
-		Credits:          usage.CurrentCycleCredits,
+		WeeklyResetAtMS:  resetAtMS,
+		Credits:          credits,
 		USDPerCredit:     weeklyEstimateUSDPerCredit,
 		UpdatedAtMS:      usage.ObservedAtMS,
 	}
+}
+
+func (s *Service) previousWeeklySample(ctx context.Context, result model.CodexInspectionResult, previousResetAtMS int64) (model.CodexInspectionResult, bool) {
+	fromMS := previousResetAtMS - int64(codexWeekWindow)*1000
+	history, err := s.store.ListCodexInspectionResultsByIdentity(ctx, result.AuthIndex, result.AccountID, fromMS, result.CreatedAtMS)
+	if err != nil {
+		return model.CodexInspectionResult{}, false
+	}
+	const adjacentResetTolerance = 15 * time.Minute
+	var selected model.CodexInspectionResult
+	selectedUsed := -1.0
+	for _, candidate := range history {
+		window := standardWeeklyQuotaWindow(candidate.QuotaWindows)
+		if window == nil || window.UsedPercent == nil {
+			continue
+		}
+		drift := time.Duration(window.ResetAtMS-previousResetAtMS) * time.Millisecond
+		if drift < 0 {
+			drift = -drift
+		}
+		if drift > adjacentResetTolerance || *window.UsedPercent < selectedUsed {
+			continue
+		}
+		selected = candidate
+		selectedUsed = *window.UsedPercent
+	}
+	return selected, selectedUsed >= 0
 }
 
 func standardWeeklyQuotaWindow(windows []model.CodexInspectionQuotaWindow) *model.CodexInspectionQuotaWindow {

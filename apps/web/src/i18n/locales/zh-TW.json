@@ -2719,6 +2719,7 @@
     "codex_inspection_weekly_heuristic_refresh": "$2,000 只在沒有帳號資料時備援；方法 2 或 3 一旦可用會自動替換它。",
     "codex_inspection_weekly_measured_refresh": "每次 5 分鐘巡檢都會嘗試更新：方法 2 優先，其次方法 3；都不可用時沿用最近已學習基線。",
     "codex_inspection_weekly_credits_equation": "本週期 {{credits}} Credits ÷ weekly 已用 {{percent}} × {{rate}}/Credit",
+    "codex_inspection_weekly_credits_previous_equation": "上一週期 {{credits}} Credits ÷ 重置前 weekly 已用 {{percent}} × {{rate}}/Credit",
     "codex_inspection_weekly_current_source": "目前基線來源：{{source}} · 更新於 {{time}}",
     "codex_inspection_weekly_time_unknown": "時間未知",
     "codex_inspection_estimate_method_title": "全部計算方式",

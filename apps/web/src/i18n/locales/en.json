@@ -2719,6 +2719,7 @@
     "codex_inspection_weekly_heuristic_refresh": "$2,000 is only a no-data fallback. Method 2 or 3 replaces it automatically as soon as account data is available.",
     "codex_inspection_weekly_measured_refresh": "Every 5-minute inspection tries to update the baseline: Method 2 first, then Method 3; otherwise the latest learned value remains active.",
     "codex_inspection_weekly_credits_equation": "{{credits}} current-cycle Credits ÷ {{percent}} weekly used × {{rate}}/Credit",
+    "codex_inspection_weekly_credits_previous_equation": "{{credits}} previous-cycle Credits ÷ {{percent}} weekly used before reset × {{rate}}/Credit",
     "codex_inspection_weekly_current_source": "Current baseline source: {{source}} · updated {{time}}",
     "codex_inspection_weekly_time_unknown": "time unknown",
     "codex_inspection_estimate_method_title": "All calculation methods",

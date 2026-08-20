@@ -170,10 +170,12 @@ type CodexWeeklyPoolEstimate struct {
 }
 
 type CodexCreditsUsage struct {
-	CurrentCycleCredits float64 `json:"currentCycleCredits"`
-	CycleStartDate      string  `json:"cycleStartDate"`
-	LatestDate          string  `json:"latestDate,omitempty"`
-	ObservedAtMS        int64   `json:"observedAtMs"`
+	CurrentCycleCredits    float64 `json:"currentCycleCredits"`
+	CycleStartDate         string  `json:"cycleStartDate"`
+	PreviousCycleCredits   float64 `json:"previousCycleCredits,omitempty"`
+	PreviousCycleStartDate string  `json:"previousCycleStartDate,omitempty"`
+	LatestDate             string  `json:"latestDate,omitempty"`
+	ObservedAtMS           int64   `json:"observedAtMs"`
 }
 
 type CodexInspectionResult struct {

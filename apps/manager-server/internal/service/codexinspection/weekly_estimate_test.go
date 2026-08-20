@@ -183,6 +183,45 @@ func TestGetRunUsesCreditsThenCarriesLearnedBaselineAcrossReset(t *testing.T) {
 	}
 }
 
+func TestGetRunLearnsCreditsFromPreviousCycleWhenCurrentAnalyticsLags(t *testing.T) {
+	ctx := context.Background()
+	db := newCodexInspectionTestStore(t)
+	svc := newCodexInspectionTestService(t, db)
+	previousAtMS := int64(1_800_000_000_000)
+	previousResetAtMS := previousAtMS + int64(2*time.Hour/time.Millisecond)
+	insertWeeklyInspectionRun(t, db, previousAtMS, previousResetAtMS, []weeklyInspectionSample{
+		{authIndex: "auth-a", accountID: "account-a", usedPercent: 80},
+	})
+	currentAtMS := previousResetAtMS + int64(time.Hour/time.Millisecond)
+	currentResetAtMS := previousResetAtMS + int64(codexWeekWindow)*1000 + int64(5*time.Minute/time.Millisecond)
+	currentRun := insertWeeklyInspectionRun(t, db, currentAtMS, currentResetAtMS, []weeklyInspectionSample{
+		{
+			authIndex:   "auth-a",
+			accountID:   "account-a",
+			usedPercent: 2,
+			creditsUsage: &model.CodexCreditsUsage{
+				CurrentCycleCredits:    0,
+				CycleStartDate:         "2027-01-08",
+				PreviousCycleCredits:   40_000,
+				PreviousCycleStartDate: "2027-01-01",
+				LatestDate:             "2027-01-06",
+				ObservedAtMS:           currentAtMS,
+			},
+		},
+	})
+	detail, err := svc.GetRun(ctx, currentRun.ID)
+	if err != nil {
+		t.Fatalf("get previous-cycle credits run: %v", err)
+	}
+	estimate := detail.Results[0].WeeklyPoolEstimate
+	if estimate == nil || estimate.WeeklyPoolUSD == nil || math.Abs(*estimate.WeeklyPoolUSD-2_000) > 0.000001 {
+		t.Fatalf("previous-cycle estimate = %#v, want $2,000", estimate)
+	}
+	if estimate.Source != weeklyEstimateSourceCreditsLearned || estimate.BaselineAtMS != previousAtMS {
+		t.Fatalf("previous-cycle provenance = %#v", estimate)
+	}
+}
+
 type weeklyInspectionSample struct {
 	authIndex    string
 	accountID    string
