@@ -1,10 +1,21 @@
 # CPA Manager Plus（CPAMP）结构说明
 
-## 说明范围
+## 文档定位与事实标签
 
-本文说明这个个人 fork 的源码拓扑、接口边界、构建产物和运行时数据边界，供 Infra companion manifest 中的 `cpamp` 角色使用。当前 companion manifest 用本仓库支持 `cpamp-service` 和 `cpa-usage-monitoring`。
+本文是当前个人 fork 的结构索引，服务于维护仓库的人和需要定位项目职责、入口、接口或验证命令的 Agent。它供 Infra companion manifest 中的 `cpamp` 角色读取；当前 companion manifest 将 `cpamp-service` 和 `cpa-usage-monitoring` 列为本仓库的消费者。
 
-本文只描述 checkout 中可由源码、脚本、测试和 tracked 文件确认的事实，不把某次本地启动、Docker 状态、浏览器状态或历史部署结果当成当前 live 状态。需要判断当前是否已部署、是否运行、是否已推送，必须另外读取对应机器、容器、HTTP 健康接口和 Git 远端状态。
+本文统一使用以下事实标签：
+
+| 标签 | 含义 |
+| --- | --- |
+| source / tracked | 当前 checkout 中由代码、配置、正式文档、脚本或测试确认的源码事实；Git 是否已提交、推送另行核对 |
+| generated | 由构建、打包或同步步骤生成的文件；应回到权威源修改 |
+| saved | 本地配置、SQLite、WAL/SHM、secret 或其他持久化运行数据；不等于 tracked source |
+| deployed / live | 某台机器、容器、服务、HTTP 接口或 queue 的实际状态；必须通过对应运行环境重新检查 |
+
+本文不把某次本地启动、Docker 状态、浏览器状态或历史部署结果写成当前 `deployed` 或 `live` 结论。修改文件也不证明 Git 已提交、远端已推送、服务已启动或 queue 正常；这些状态需要分别读取 Git、机器/容器、HTTP 健康接口和 CPA queue。
+
+本文中的 `CPA` 指 CLIProxyAPI 网关，`CPAMP` 指本仓库的管理面板及 Manager Server。两者的请求、Provider、凭证、持久化和运行时责任见下文。
 
 ## Fork 与上游关系
 
@@ -18,7 +29,7 @@
 | 官方上游 remote | `origin` → `https://github.com/seakee/CPA-Manager-Plus.git` |
 | 上游基线 | 以本地可用的 `origin/main` 为比较基线；同步前必须重新检查 remote ref，不假定它代表远端最新状态 |
 
-`lwj_dev` 是个人定制分支，不等同于官方 `main`。当前分支相对本地 `origin/main` 的定制重点包括 Codex 本地会话巡检、weekly pool 估算与学习、loopback-only passwordless Manager Server，以及相应的前后端、持久化、文档和测试。具体文件集合应使用以下命令重新确认：
+`lwj_dev` 是个人定制分支，不等同于官方 `main`。当前分支相对本地 `origin/main` 的定制重点包括 Codex 本地会话巡检、weekly pool 估算与学习、loopback-only passwordless Manager Server，以及相应的前后端、持久化、文档和测试。这里的 `origin/main` 只是当前 checkout 中可用的比较基线；具体文件集合应使用以下命令重新确认：
 
 ```bash
 git diff --name-status origin/main...HEAD
@@ -29,7 +40,7 @@ git log --oneline origin/main..HEAD
 
 ## Infra 角色与 CPA / CLIProxyAPI 边界
 
-CPAMP 是 CPA / CLIProxyAPI 的管理面板和可观测性服务，不是模型代理本体。CPA（CLIProxyAPI）仍然拥有实际模型请求、Provider 路由、Provider 凭证、OAuth/Auth File、客户端 API Key、插件运行时和请求产生的 usage queue。CPAMP 通过 CPA 的 Management API、插件资源接口和 usage queue 管理或观测这些能力。
+CPAMP 是 CPA 的管理面板和可观测性服务，不是模型代理本体。CPA 仍然拥有实际模型请求、Provider 路由、Provider 凭证、OAuth/Auth File、客户端 API Key、插件运行时和请求产生的 usage queue。CPAMP 通过 CPA 的 Management API、插件资源接口和 usage queue 管理或观测这些能力；CPAMP 的 SQLite 只保存 CPAMP 自己的历史、分析和状态。
 
 | 责任 | CPA / CLIProxyAPI | CPAMP / Manager Server |
 | --- | --- | --- |
@@ -38,23 +49,27 @@ CPAMP 是 CPA / CLIProxyAPI 的管理面板和可观测性服务，不是模型�
 | 管理接口 | 提供 CPA Management API | 处理 CPAMP 自己的用量、分析、巡检接口；其他 CPA 管理路径由 `service/proxy` 使用服务端保存的 CPA Management Key 代理 |
 | 用量来源 | 发布 usage queue；队列 retention 由 CPA 决定 | 采集、规范化、脱敏摘要、写入本地 SQLite 并提供分析 |
 | 成本与历史 | 不由 CPAMP 的 SQLite 承担 | 保存请求历史、模型价格、聚合统计、失败摘要和账号趋势 |
-| 账号巡检与自动化 | 提供可访问的 Auth File / 管理 API，实际凭证状态仍在 CPA | 保存巡检运行、结果、日志、候选处理和自身调度状态，并按配置执行受控管理操作 |
+| 账号巡检与自动化 | 提供可访问的 Auth File / 管理 API，实际凭证状态仍在 CPA | 保存巡检运行、结果、日志、候选处理和自身调度状态；是否执行账号动作由配置控制，候选或建议不等于已执行 |
 
 ### 两种产品运行模式
 
-1. **CPAMP 轻量面板（CPA Panel）**：CPA 直接托管同一份 `management.html`，浏览器使用 CPA Management Key 调用 CPA。该模式不启动 Manager Server，不读取 CPAMP SQLite，因此没有服务端请求历史、模型价格分析、服务端巡检等能力。
-2. **CPAMP 完整模式（Manager Server）**：Go 二进制在默认 `:18317` 托管嵌入的 `management.html`，浏览器使用 CPAMP Admin Key 登录；首次 setup 保存 CPA 地址、CPA Management Key 和采集配置。Manager Server 启用 collector 后消费 CPA usage queue，并把结果保存到自己的 SQLite。
+| 模式 | 托管方与入口 | 持久化和能力 | 凭证边界 |
+| --- | --- | --- | --- |
+| CPAMP 轻量面板（CPA Panel） | CPA 直接托管 `management.html`，入口是 CPA `:8317/management.html` | 不启动 Manager Server，不读取 CPAMP SQLite；只有 CPA 提供的配置、Provider、凭证、OAuth、Quota、日志和插件能力 | 浏览器使用 CPA Management Key 调用 CPA |
+| CPAMP 完整模式（Manager Server） | Go 二进制默认在 `:18317` 托管嵌入的 `management.html`，入口是 Manager Server `:18317/management.html` | 首次 setup 保存 CPA 地址、CPA Management Key 和采集配置；启用 collector 后消费 CPA usage queue，并将结果保存到自己的 SQLite | 默认使用 CPAMP Admin Key；配置 loopback-only passwordless 时跳过登录，但 Manager Server 仍使用 CPA Management Key 连接 CPA |
 
-在 Manager Server 模式中，`/v0/management/*`、`/usage-service/*`、`/management.html` 和兼容的 `/models` 属于 CPAMP 管理入口；轻量面板模式下同一类 CPA 管理路径由 CPA 自己提供。实际模型请求仍应走 CPA。在线演示构建使用虚构 fixture，是预览构建，不是第三种部署模式。
+在线演示构建使用虚构 fixture，是预览构建，不是第三种部署模式，也不能连接、管理或监控真实 CPA。
+
+在 Manager Server 模式中，`/v0/management/*`、`/usage-service/*`、`/management.html` 和兼容的 `/models` 属于 CPAMP 管理入口；轻量面板模式下同一类 CPA 管理路径由 CPA 自己提供。实际模型请求仍应走 CPA。
 
 ## 顶层目录与根文件
 
-### Tracked 顶层目录
+### Tracked 顶层目录（source）
 
 | 路径 | 职责 |
 | --- | --- |
 | `.github/` | Issue 模板、Dependabot、PR 检查、Demo/Docs、分支晋级和 release workflow |
-| `apps/` | npm workspace、React Web、VitePress 文档和 Go Manager Server 的源码 |
+| `apps/` | npm workspace、React Web、VitePress 文档和 Go Manager Server 源码 |
 | `bin/` | 安装器、原生进程控制、CI 分类、release 校验和打包脚本 |
 | `docs/` | 仓库级迁移、管理员密钥、release notes/posts 和实施记录；产品使用文档主要在 `apps/docs/` |
 | `img/` | README 和文档引用的截图资源 |
@@ -151,9 +166,9 @@ collector 的 `auto` 模式按代码在可用时尝试 RESP subscribe，失败�
 | --- | --- |
 | `apps/docs/.vitepress/` | VitePress config、导航/sidebar、主题和 CSS |
 | `apps/docs/index.md` | 中文文档首页、任务入口、运行模式说明 |
-| `apps/docs/guide/`、`deployment/`、`gateway/` | 模式选择、安装部署、CPA 准备和客户端/Provider 接入 |
+| `apps/docs/guide/`、`apps/docs/deployment/`、`apps/docs/gateway/` | 模式选择、安装部署、CPA 准备和客户端/Provider 接入 |
 | `apps/docs/manual/` | Dashboard、Provider、Accounts、Monitoring、Usage Analytics、Inspection、Plugins、Config 等产品操作文档 |
-| `apps/docs/operations/`、`troubleshooting/`、`reference/`、`migration/` | 运维、排障、能力矩阵、FAQ、版本和迁移 |
+| `apps/docs/operations/`、`apps/docs/troubleshooting/`、`apps/docs/reference/`、`apps/docs/migration/` | 运维、排障、能力矩阵、FAQ、版本和迁移 |
 | `apps/docs/en/` | 与中文页面对应的英文文档集合 |
 | `apps/docs/images/` | 文档站使用的图片资源 |
 | `apps/docs/package.json` | VitePress dev/build/preview 入口 |
@@ -172,7 +187,7 @@ collector 的 `auto` 模式按代码在可用时尝试 RESP subscribe，失败�
 | `bin/release/` | Demo isolation、native package、release content/published asset 校验和 Telegram 通知 |
 | `bin/tmp/` | 本地打包 scratch；被忽略，不是源码目录 |
 
-安装器生成的 compose、CPA config、Auth directory、secret 和 data volume 属于部署目录/运行时，不应回写本仓库。
+安装器生成的 compose、CPA config、Auth directory、secret 和 data volume 属于 deployed/saved 运行时内容，不应回写本仓库。
 
 ### `docs/`
 
@@ -190,7 +205,7 @@ collector 的 `auto` 模式按代码在可用时尝试 RESP subscribe，失败�
 
 ### 配置来源与优先级
 
-Manager Server 读取可选的 `CPA_MANAGER_CONFIG` 指定 JSON；否则按可执行文件旁的 `config.json` 读取或在需要时创建默认配置。环境变量覆盖文件配置。常用入口包括：
+Manager Server 读取可选的 `CPA_MANAGER_CONFIG` 指定 JSON；未指定时按可执行文件旁的 `config.json` 读取，必要时创建默认配置。环境变量覆盖文件配置。常用入口包括：
 
 | 配置类别 | 源码入口 | 代表字段 |
 | --- | --- | --- |
@@ -201,44 +216,41 @@ Manager Server 读取可选的 `CPA_MANAGER_CONFIG` 指定 JSON；否则按可�
 | 数据与跨域 | `internal/config`、`internal/repository/sqlite` | `USAGE_DATA_DIR`、`USAGE_DB_PATH`、`USAGE_CORS_ORIGINS`、`USAGE_RESP_TLS_SKIP_VERIFY` |
 | 账号处理/派生数据 | `internal/config`、service/worker | `USAGE_QUOTA_COOLDOWN_ENABLED`、`USAGE_ACCOUNT_ACTIONS_ENABLED`、`USAGE_ACCOUNT_ACTIONS_AUTO_DISABLE`、`USAGE_DASHBOARD_HOURLY_ROLLUP_ENABLED` |
 
-首次 setup 会验证 CPA Management API；Manager config 可能来自环境或 SQLite，环境托管的字段不能在 UI 中覆盖。`CPA_MANAGER_DISABLE_AUTH=true` 只允许 loopback HTTP 地址和 loopback CORS，路由层还会执行 `LoopbackHostOnly`；这不是对公网开放的无密码模式。
+首次 setup 会验证 CPA Management API。Manager config 可能来自环境或 SQLite；连接和采集字段由环境托管时，UI 不能覆盖它们。`CPA_MANAGER_DISABLE_AUTH=true` 只允许 loopback HTTP 地址和 loopback CORS，路由层还会执行 `LoopbackHostOnly`；这不是对公网开放的无密码模式。
 
 ### 持久化与数据流
 
-默认 Docker 数据库是 `/data/usage.sqlite`；原生运行默认使用可执行文件配置目录下的 `data/usage.sqlite`，可用 `USAGE_DB_PATH` 改变。SQLite 还会产生 WAL/SHM 等伴随文件。`settings` 保存 setup、Manager config、Admin credential、bootstrap 和 automation 状态；CPA Management Key 使用 `data.key` 派生的保护器加密后再写入 settings。Admin Key 只保存 hash/salt 等凭证材料，不保存明文。
+默认 Docker 数据库是 `/data/usage.sqlite`；原生运行默认使用可执行文件配置目录下的 `data/usage.sqlite`，可用 `USAGE_DB_PATH` 改变。SQLite 还会产生 WAL/SHM 等伴随文件。`settings` 保存 setup、Manager config、Admin credential、bootstrap 和 automation 状态；CPA Management Key 使用 `data.key` 派生的保护器加密后再写入 settings。CPAMP Admin Key 只保存 hash/salt 等凭证材料，不保存明文。
 
 主要 SQLite 数据分组：
 
 - `usage_events`、`dead_letter_events`：规范化请求事件和无法入库的事件；`usage_events` 是派生数据重建的权威输入。
-- usage aggregate、pricing、monitoring、dashboard、account-history rollup 及 checkpoint/state：查询加速和趋势数据，可由 worker/migration 重建或追赶。
+- usage aggregate、pricing、monitoring、dashboard、account-history rollup 及 checkpoint/state：查询加速和趋势数据，可由 worker/migration 重建或追赶；它们是派生数据，不替代 `usage_events`。
 - `model_prices`、context/service tiers、`api_key_aliases`：本地价格和调用方别名。
 - `codex_inspection_*`、quota snapshot/cooldown、`account_action_candidates`：巡检、配额证据、冷却和账号处理状态。
 - `usage_data_migrations`、import session 元数据及 `data/usage-imports/`：迁移和分块 usage 导入生命周期。
 
 大表扫描、backfill、索引重建、FTS/derived 清理和 `VACUUM` 不属于 HTTP controller；应放在 SQLite migration/derived maintenance 或显式 maintenance command，并保持 listener 可用、批量执行、可恢复。不得删除或重写 `usage_events` 来“修复”派生数据。
 
-### 源码、构建产物、依赖、运行时和凭证
+### source、generated、saved 与凭证边界
 
 | 类别 | 位置/来源 | 处理规则 |
 | --- | --- | --- |
-| 源码 | tracked 的 `apps/`、`bin/`、`docs/`、`tests/` 和根配置 | 可审查、可修改，但要遵守本文件及 `AGENTS.md` 的 owner/架构边界 |
-| Web 构建产物 | `apps/web/dist/`、`apps/web/dist-demo/` | 由 npm build 生成，不手工维护；生产单文件来自 `apps/web/dist/index.html` |
-| 嵌入面板 | `apps/manager-server/internal/httpapi/web/management.html` | 打包时由 Web 单文件同步/嵌入；权威源是 `apps/web/src`，禁止直接手改该文件 |
-| Native/release 产物 | `dist/native/`、`dist/release/`、`bin/tmp/` | 由 release script/CI 生成，不能当作源码提交 |
-| JS 依赖 | root/app `package*.json`、`node_modules/` | 依赖版本由 package lock 和 workspace manifest 管理；`node_modules` 不属于源码 |
-| Go 依赖 | `apps/manager-server/go.mod`、`go.sum` 与外部 module cache | 不把 module cache 或下载内容复制进 repo |
-| 运行时数据 | `/data` 或 native `data/`、SQLite/WAL/SHM、`usage-imports/` | 只作为部署 volume/目录备份；不要提交或放进 Docker image source context |
-| 运行日志/进程状态 | Docker stdout，native `run/`、`logs/`、PID 文件 | live 诊断时读取；不作为 source 或 release 事实 |
+| source | tracked 的 `.github/`、`apps/`、`bin/`、`docs/`、`img/`、`tests/` 和根配置 | 可审查、可修改，但要遵守本文件及 `AGENTS.md` 的 owner/架构边界 |
+| generated | `apps/web/dist/`、`apps/web/dist-demo/`、`apps/manager-server/internal/httpapi/web/management.html`、`dist/native/`、`dist/release/`、`bin/tmp/` | 由 npm build、打包脚本或 CI 生成；权威源分别是 `apps/web/src`、Manager Server 源码和 release 配置，不能把产物当作源码提交 |
+| 依赖 | root/app `package*.json`、`node_modules/`、`apps/manager-server/go.mod`、`go.sum` 与外部 module cache | 依赖版本由 package lock、workspace manifest 和 Go module 管理；不把 `node_modules` 或 module cache 复制进 repo |
+| saved | `/data` 或 native `data/`、SQLite/WAL/SHM、`usage-imports/` | 只作为部署 volume/目录备份；不要提交或放进 Docker image source context |
+| deployed/live | Docker stdout，native `run/`、`logs/`、PID 文件 | 只在对应机器或容器上用于诊断；不作为 source 或 release 事实 |
 | 凭证 | secret file/env、SQLite 加密 settings、CPA 自己的 Auth File | 不提交 CPA Management Key、Admin Key、data.key、OAuth token、Auth File 或普通 API key |
 
 ## 当前个人定制的职责边界
 
 以下是当前 `lwj_dev` 相对 `origin/main` 的代码职责，不代表官方仓库能力，也不代表某个环境已经部署：
 
-1. **本地 Codex 会话读取**：`internal/service/codexinspection/local_session.go` 通过 `CPAMP_CODEX_EXECUTABLE` 或 PATH 中的 `codex` 启动 `codex app-server --listen stdio://`，读取 `account/read`、`account/rateLimits/read`、`account/usage/read`，由 `/v0/management/codex-inspection/local-session` 返回本地会话快照。它读取的是运行 Manager Server 的机器上的本地 Codex app-server，不等同于 CPA 中注册的 Auth File，也不把 Codex session quota 变成官方账单数据。
-2. **Codex weekly pool 估算**：`internal/service/codexinspection/weekly_estimate.go`、`model`、`repository/codexinspection` 和 SQLite schema 保存同账号/同 reset 周期的 baseline，并基于 CPA 观测到的成本变化或 credits 变化给出 preliminary/reliable 等状态。`CodexWeeklyPoolEstimate.Official` 明确为非官方估算；前端 `features/monitoring/components/CodexWeeklyPoolEstimate.tsx` 还提供 Pro 无实测值时的启发式展示。该功能不能替代官方 quota、账单或价格来源。
-3. **loopback-only passwordless**：`config`、`http/middleware/auth`、bootstrap/admin auth、setup 和 Web login 共同支持已配置的 loopback Manager Server 无密码访问；安全边界是 loopback host/CORS 校验，不是移除所有鉴权。
-4. **监控与 UI 接口**：`apps/web/src/features/monitoring`、`services/api/usageService.ts`、多语言资源和对应测试把上述本地会话、weekly estimate、服务端巡检和账户动作展示出来；这些前端代码仍通过 Manager Server/CPA API 工作，不直接拥有后端 SQLite 或 CPA provider runtime。
+1. **本地 Codex 会话读取**：`apps/manager-server/internal/service/codexinspection/local_session.go` 通过 `CPAMP_CODEX_EXECUTABLE` 或 PATH 中的 `codex` 启动 `codex app-server --listen stdio://`，读取 `account/read`、`account/rateLimits/read`、`account/usage/read`，由 `/v0/management/codex-inspection/local-session` 返回本地会话快照。它读取的是运行 Manager Server 的机器上的本地 Codex app-server，不等同于 CPA 中注册的 Auth File，也不把 Codex session quota 变成官方账单数据。
+2. **Codex weekly pool 估算**：`apps/manager-server/internal/service/codexinspection/weekly_estimate.go`、`apps/manager-server/internal/model`、`apps/manager-server/internal/repository/codexinspection` 和 SQLite schema 保存同账号/同 reset 周期的 baseline，并基于 CPA 观测到的成本变化或 credits 变化给出 preliminary/reliable 等状态。`CodexWeeklyPoolEstimate.Official` 明确为非官方估算；前端 `apps/web/src/features/monitoring/components/CodexWeeklyPoolEstimate.tsx` 还提供 Pro 无实测值时的启发式展示。该功能不能替代官方 quota、账单或价格来源。
+3. **loopback-only passwordless**：`apps/manager-server/internal/config`、`apps/manager-server/internal/http/middleware/auth.go`、bootstrap/admin auth、setup 和 Web login 共同支持已配置的 loopback Manager Server 无密码访问；安全边界是 loopback host/CORS 校验，不是移除所有鉴权。
+4. **监控与 UI 接口**：`apps/web/src/features/monitoring`、`apps/web/src/services/api/usageService.ts`、多语言资源和对应测试把上述本地会话、weekly estimate、服务端巡检和账户动作展示出来；这些前端代码仍通过 Manager Server/CPA API 工作，不直接拥有后端 SQLite 或 CPA provider runtime。
 
 修改这些定制时，保持以下接口不漂移：local session 的 `status/source/reason/snapshot` 结构、weekly estimate 的状态/来源/非官方语义、Admin Key 与 CPA Management Key 的分离、CPA Panel 与 Manager Server 两种模式的可用性判断。
 
@@ -288,7 +300,7 @@ docker compose -f docker-compose.manager.yml up --build
 - 不为清理派生数据删除或改写 `usage_events`；migration/backfill 必须批量、幂等、可恢复，且不能让启动等待随数据量增长的重建工作。
 - 修改 collector、auth、setup、proxy、monitoring 或 shared config 时，必须同时考虑 CPA Panel 与 Full Docker/Manager Server 语义；不要只验证一个模式。
 - `AGENTS.md`、`CONTRIBUTING.md`、workflow、release 拓扑和其他协作规则不是本结构说明的临时草稿；除非明确授权，不在业务改动中顺手重写它们。
-- 不在本仓库执行未经授权的 fetch/merge/push、服务重启、数据库清理或远端发布；本地 source、保存配置、本地部署和 live 行为要分开报告。
+- 不在本仓库执行未经授权的 fetch/merge/push、服务重启、数据库清理或远端发布；本地 source、saved 配置、deployed 状态和 live 行为要分开报告。
 
 ## 结构同步规则
 
@@ -297,6 +309,6 @@ docker compose -f docker-compose.manager.yml up --build
 3. **更新本文**：仅当顶层目录、关键二级目录、实际接口/数据边界、构建产物或定制职责发生变化时更新；新文件应先确认已 tracked/属于 source，再加入目录表。
 4. **接口变更**：如果 local session、weekly estimate、鉴权、collector、SQLite schema 或 Web feature availability 改变，先更新实现和测试，再同步本文的边界/验证入口；不要用文档掩盖未验证的接口漂移。
 5. **Infra 投影**：`cpamp` 仍作为 `cpamp-service` 和 `cpa-usage-monitoring` 的 companion 引用。源码路径、启动参数、数据目录或健康接口如有变化，应在实际拥有 companion manifest 的 Infra 仓库同步更新，并在本仓库单独核验，不把 Infra 配置复制成第二份源码真相。
-6. **验证后交付**：记录实际执行的命令和结果，区分“文件已修改”“Git 已保存/提交”“远端已推送”“本地服务可访问”“live collector/queue 已验证”；本文更新本身不证明后四项。
+6. **验证后交付**：记录实际执行的命令和结果，区分“文件已修改”“Git 已提交”“远端已推送”“本地服务可访问”“live collector/queue 已验证”；本文更新本身不证明后四项。
 
 `STRUCTURE.md` 只负责长期结构和边界说明，不替代 release notes、部署 runbook、当前 live health 报告或个人环境的 secret/config 记录。
