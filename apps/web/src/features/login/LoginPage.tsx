@@ -36,14 +36,33 @@ import {
 } from '@/utils/connection';
 import { LANGUAGE_LABEL_KEYS, LANGUAGE_ORDER } from '@/utils/constants';
 import { isSupportedLanguage } from '@/utils/language';
-import { INLINE_LOGO_JPEG } from '@/assets/logoInline';
+import {
+  CPAMP_HORIZONTAL_LOGO_ON_DARK_PNG_SRC_SET,
+  CPAMP_HORIZONTAL_LOGO_ON_DARK_PNG_URL,
+  CPAMP_HORIZONTAL_LOGO_PNG_SRC_SET,
+  CPAMP_HORIZONTAL_LOGO_PNG_URL,
+  CPAMP_VERTICAL_LOGO_ON_DARK_URL,
+  CPAMP_VERTICAL_LOGO_ON_DARK_SRC_SET,
+  CPAMP_VERTICAL_LOGO_SRC_SET,
+  CPAMP_VERTICAL_LOGO_URL,
+} from '@/assets/brand';
 import type { ApiError } from '@/types';
 import { resolveUsageServiceLoginMode, shouldAutoLoginUsageService } from './loginMode';
 import styles from './LoginPage.module.scss';
 
-type RedirectState = { from?: { pathname?: string } };
+type RedirectState = { from?: { pathname?: string; search?: string; hash?: string } };
 type UsageSetupStep = 'admin' | 'connection' | 'cpaKey' | 'monitoring' | 'polling' | 'review';
 const CONFIG_TAB_STORAGE_KEY = 'config-management:tab';
+
+function resolveRedirectPath(state: unknown): string {
+  const from = (state as RedirectState | null)?.from;
+  const pathname = typeof from?.pathname === 'string' ? from.pathname : '';
+  if (!pathname || pathname === '/login' || !pathname.startsWith('/')) return '/';
+
+  const search = typeof from?.search === 'string' ? from.search : '';
+  const hash = typeof from?.hash === 'string' ? from.hash : '';
+  return `${pathname}${search}${hash}`;
+}
 
 function getLocalizedErrorMessage(
   error: unknown,
@@ -143,6 +162,7 @@ export function LoginPage() {
   const detectedBase = useMemo(() => detectApiBaseFromLocation(), []);
   const isManagerServerMode = hostedByUsageService;
   const loginCredential = isManagerServerMode ? adminKey : cpaManagementKey;
+  const redirectAfterLogin = useMemo(() => resolveRedirectPath(location.state), [location.state]);
   const loginCredentialLabel = isManagerServerMode
     ? t('login.admin_key_label')
     : t('login.cpa_management_key_label');
@@ -284,9 +304,7 @@ export function LoginPage() {
           setAutoLoginSuccess(true);
           setTimeout(() => {
             const redirect =
-              autoLoggedIn.recoveryMode === 'manager_config'
-                ? '/config'
-                : (location.state as RedirectState | null)?.from?.pathname || '/';
+              autoLoggedIn.recoveryMode === 'manager_config' ? '/config' : redirectAfterLogin;
             if (autoLoggedIn.recoveryMode === 'manager_config') {
               localStorage.setItem(CONFIG_TAB_STORAGE_KEY, 'manager');
             }
@@ -465,7 +483,7 @@ export function LoginPage() {
         localStorage.setItem(CONFIG_TAB_STORAGE_KEY, 'manager');
         navigate('/config', { replace: true });
       } else {
-        navigate('/', { replace: true });
+        navigate(redirectAfterLogin, { replace: true });
       }
     } catch (err: unknown) {
       const message = getLocalizedErrorMessage(err, t);
@@ -487,6 +505,7 @@ export function LoginPage() {
     pollIntervalMs,
     rememberCredential,
     requestMonitoringEnabled,
+    redirectAfterLogin,
     setUsageServiceConfig,
     showNotification,
     t,
@@ -505,8 +524,7 @@ export function LoginPage() {
   );
 
   if (isAuthenticated && !autoLoading && !autoLoginSuccess) {
-    const redirect = (location.state as RedirectState | null)?.from?.pathname || '/';
-    return <Navigate to={redirect} replace />;
+    return <Navigate to={redirectAfterLogin} replace />;
   }
 
   const showSplash = autoLoading || autoLoginSuccess;
@@ -571,9 +589,18 @@ export function LoginPage() {
       <div className={styles.formPanel}>
         {showSplash ? (
           <div className={styles.splashContent}>
-            <img src={INLINE_LOGO_JPEG} alt="CPAMP" className={styles.splashLogo} />
-            <h1 className={styles.splashTitle}>{t('splash.title')}</h1>
-            <p className={styles.splashSubtitle}>{t('splash.subtitle')}</p>
+            <img
+              src={CPAMP_VERTICAL_LOGO_URL}
+              srcSet={CPAMP_VERTICAL_LOGO_SRC_SET}
+              alt="CPA Manager Plus"
+              className={[styles.splashLogo, styles.splashLogoLight].join(' ')}
+            />
+            <img
+              src={CPAMP_VERTICAL_LOGO_ON_DARK_URL}
+              srcSet={CPAMP_VERTICAL_LOGO_ON_DARK_SRC_SET}
+              alt="CPA Manager Plus"
+              className={[styles.splashLogo, styles.splashLogoDark].join(' ')}
+            />
             <div className={styles.splashLoader}>
               <div className={styles.splashLoaderBar} />
             </div>
@@ -588,15 +615,18 @@ export function LoginPage() {
               className={`${styles.loginCard} ${usageServiceNeedsSetup ? styles.setupCard : ''}`}
             >
               <div className={styles.cardBranding}>
-                <img src={INLINE_LOGO_JPEG} alt="CPA Manager Plus" className={styles.logo} />
-                <h1>CPA Manager Plus</h1>
-                <p>
-                  {usageServiceNeedsSetup
-                    ? t('login.docker_setup_subtitle')
-                    : isManagerServerMode
-                      ? t('login.docker_login_subtitle')
-                      : t('login.subtitle')}
-                </p>
+                <img
+                  src={CPAMP_HORIZONTAL_LOGO_PNG_URL}
+                  srcSet={CPAMP_HORIZONTAL_LOGO_PNG_SRC_SET}
+                  alt="CPA Manager Plus"
+                  className={[styles.brandLogo, styles.brandLogoLight].join(' ')}
+                />
+                <img
+                  src={CPAMP_HORIZONTAL_LOGO_ON_DARK_PNG_URL}
+                  srcSet={CPAMP_HORIZONTAL_LOGO_ON_DARK_PNG_SRC_SET}
+                  alt="CPA Manager Plus"
+                  className={[styles.brandLogo, styles.brandLogoDark].join(' ')}
+                />
               </div>
 
               {usageServiceNeedsSetup && (
