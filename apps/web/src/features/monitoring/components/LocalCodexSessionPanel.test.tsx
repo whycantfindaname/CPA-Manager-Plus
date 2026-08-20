@@ -52,6 +52,15 @@ const comparison: CodexInspectionResult = {
       limitWindowSeconds: 604800,
     },
   ],
+  weeklyPoolEstimate: {
+    official: false,
+    basis: 'cost_delta_divided_by_used_percent_delta',
+    status: 'reliable',
+    weeklyPoolUsd: 2040,
+    costDeltaUsd: 102,
+    usedPercentDelta: 5,
+    priceSources: ['models.dev'],
+  },
 };
 
 describe('LocalCodexSessionPanel', () => {
@@ -78,6 +87,8 @@ describe('LocalCodexSessionPanel', () => {
     expect(text).toContain('"percent":"0.0"');
     expect(text).toContain('"seconds":36');
     expect(text).toContain('monitoring.local_codex_session_daily_tokens_hint');
+    expect(text).toContain('monitoring.codex_inspection_weekly_estimate_title');
+    expect(text).toContain('$2,040');
   });
 
   it('explains that CPA inspection remains usable when app-server is missing', () => {
