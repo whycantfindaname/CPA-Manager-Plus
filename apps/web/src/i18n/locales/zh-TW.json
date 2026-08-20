@@ -2332,6 +2332,7 @@
     "server_codex_inspection_cancel_confirm_body": "服務端會取消目前巡檢並等待 worker 收尾，已完成的結果與日誌會保留。",
     "server_codex_inspection_run_confirm_title": "立即執行服務端巡檢",
     "server_codex_inspection_run_confirm_body": "服務端會依目前設定巡檢帳號；若啟用了自動處理策略，可能會直接禁用或刪除帳號。確認繼續嗎？",
+    "server_codex_inspection_run_confirm_body_manual": "服務端只會巡檢帳號並更新額度結果。Disable 與 Delete 必須手動執行，不會自動執行。確認繼續嗎？",
     "server_codex_inspection_config_title": "服務端巡檢設定",
     "server_codex_inspection_config_desc": "設定定時檢查的觸發方式、檢查並發、逾時與自動處理策略。",
     "server_codex_inspection_config_saved": "服務端巡檢設定已保存",

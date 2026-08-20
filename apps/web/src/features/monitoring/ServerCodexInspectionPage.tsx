@@ -1168,9 +1168,13 @@ export function ServerCodexInspectionPage() {
   }, [loadRunDetail, managementKey, refreshRuns, selectRunId, serviceBase, showNotification, t]);
 
   const handleRunNow = () => {
+    const confirmBodyKey =
+      selectedConfig.autoActionMode === 'none'
+        ? 'monitoring.server_codex_inspection_run_confirm_body_manual'
+        : 'monitoring.server_codex_inspection_run_confirm_body';
     showConfirmation({
       title: t('monitoring.server_codex_inspection_run_confirm_title'),
-      message: t('monitoring.server_codex_inspection_run_confirm_body'),
+      message: t(confirmBodyKey),
       confirmText: t('monitoring.server_codex_inspection_run_now'),
       cancelText: t('common.cancel'),
       variant: selectedConfig.autoActionMode === 'delete' ? 'danger' : 'primary',

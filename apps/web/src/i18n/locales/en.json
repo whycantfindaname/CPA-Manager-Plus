@@ -2332,6 +2332,7 @@
     "server_codex_inspection_cancel_confirm_body": "The server will cancel the active inspection after current workers finish. Completed results and logs will be preserved.",
     "server_codex_inspection_run_confirm_title": "Run server inspection now",
     "server_codex_inspection_run_confirm_body": "The server will inspect accounts with the current configuration. If automatic handling is enabled, accounts may be disabled or deleted directly. Continue?",
+    "server_codex_inspection_run_confirm_body_manual": "The server will inspect accounts and update quota results only. Disable and delete actions remain manual and will not run automatically. Continue?",
     "server_codex_inspection_config_title": "Server Inspection Config",
     "server_codex_inspection_config_desc": "Configure the schedule, check concurrency, timeout, and automatic handling strategy.",
     "server_codex_inspection_config_saved": "Server inspection config saved",
