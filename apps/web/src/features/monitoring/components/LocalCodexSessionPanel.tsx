@@ -9,7 +9,6 @@ import type {
 } from '@/services/api/usageService';
 import styles from '../CodexInspectionPage.module.scss';
 import { CodexInspectionQuotaWindows } from './CodexInspectionQuotaWindows';
-import { CodexWeeklyPoolEstimate } from './CodexWeeklyPoolEstimate';
 import { Panel } from './CodexInspectionPanels';
 
 type LocalCodexSessionPanelProps = {
@@ -199,16 +198,6 @@ export function LocalCodexSessionPanel({
           </div>
 
           <CodexInspectionQuotaWindows windows={quotaWindows} t={t} />
-
-          {comparison?.weeklyPoolEstimate ? (
-            <CodexWeeklyPoolEstimate estimate={comparison.weeklyPoolEstimate} t={t} />
-          ) : (
-            <details className={styles.weeklyEstimateMethod}>
-              <summary>{t('monitoring.codex_inspection_estimate_method_title')}</summary>
-              <span>{t('monitoring.codex_inspection_estimate_method_api')}</span>
-              <span>{t('monitoring.codex_inspection_estimate_method_credits')}</span>
-            </details>
-          )}
 
           <div className={styles.localSessionEvidenceRow}>
             <div>

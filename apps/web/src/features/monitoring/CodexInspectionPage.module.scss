@@ -1019,6 +1019,10 @@
   font-weight: 600;
 }
 
+.weeklyEstimateMethod span {
+  display: block;
+}
+
 .weeklyEstimateEquation {
   color: var(--inspect-ink);
   font-family: var(--font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);

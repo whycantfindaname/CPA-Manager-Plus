@@ -87,8 +87,8 @@ describe('LocalCodexSessionPanel', () => {
     expect(text).toContain('"percent":"0.0"');
     expect(text).toContain('"seconds":36');
     expect(text).toContain('monitoring.local_codex_session_daily_tokens_hint');
-    expect(text).toContain('monitoring.codex_inspection_weekly_estimate_title');
-    expect(text).toContain('$2,040');
+    expect(text).not.toContain('monitoring.codex_inspection_weekly_estimate_title');
+    expect(text).not.toContain('$2,040');
   });
 
   it('explains that CPA inspection remains usable when app-server is missing', () => {
