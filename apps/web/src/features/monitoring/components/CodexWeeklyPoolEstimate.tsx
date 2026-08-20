@@ -53,6 +53,21 @@ const reasonKey = (reason?: string) => {
   }
 };
 
+const sourceKey = (estimate: WeeklyPoolEstimate) => {
+  switch (estimate.source) {
+    case 'cpa_current':
+      return 'monitoring.codex_inspection_weekly_source_cpa_current';
+    case 'credits_current':
+      return 'monitoring.codex_inspection_weekly_source_credits_current';
+    case 'cpa_learned':
+      return 'monitoring.codex_inspection_weekly_source_cpa_learned';
+    case 'credits_learned':
+      return 'monitoring.codex_inspection_weekly_source_credits_learned';
+    default:
+      return 'monitoring.codex_inspection_weekly_source_collecting';
+  }
+};
+
 export function CodexWeeklyPoolEstimate({
   estimate,
   planType,
@@ -78,6 +93,10 @@ export function CodexWeeklyPoolEstimate({
   const syncedAt = estimate.priceSyncedAtMs
     ? new Date(estimate.priceSyncedAtMs).toLocaleString()
     : '';
+  const updatedAt = estimate.updatedAtMs
+    ? new Date(estimate.updatedAtMs).toLocaleString()
+    : '';
+  const estimateSource = t(sourceKey(estimate));
 
   return (
     <div className={styles.weeklyEstimate} data-status={estimate.status}>
@@ -86,7 +105,10 @@ export function CodexWeeklyPoolEstimate({
           {t('monitoring.codex_inspection_weekly_estimate_title')}
         </span>
         <span className={`${styles.weeklyEstimateStatus} ${statusClass[estimate.status]}`}>
-          {t(`monitoring.codex_inspection_weekly_estimate_status_${estimate.status}`)}
+          {t('monitoring.codex_inspection_weekly_estimate_source_status', {
+            source: estimateSource,
+            status: t(`monitoring.codex_inspection_weekly_estimate_status_${estimate.status}`),
+          })}
         </span>
       </div>
 
@@ -96,9 +118,21 @@ export function CodexWeeklyPoolEstimate({
             {formatUSD(estimate.weeklyPoolUsd!)}
           </strong>
           <span className={styles.weeklyEstimateEquation}>
-            {t('monitoring.codex_inspection_weekly_estimate_equation', {
-              cost: formatUSD(estimate.costDeltaUsd ?? 0),
-              percent: formatPercent(estimate.usedPercentDelta ?? 0),
+            {estimate.basis === 'credits'
+              ? t('monitoring.codex_inspection_weekly_credits_equation', {
+                  credits: (estimate.credits ?? 0).toFixed(2),
+                  percent: formatPercent(estimate.usedPercentDelta ?? 0),
+                  rate: formatUSD(estimate.usdPerCredit ?? 0.04),
+                })
+              : t('monitoring.codex_inspection_weekly_estimate_equation', {
+                  cost: formatUSD(estimate.costDeltaUsd ?? 0),
+                  percent: formatPercent(estimate.usedPercentDelta ?? 0),
+                })}
+          </span>
+          <span className={styles.weeklyEstimateUpdateHint}>
+            {t('monitoring.codex_inspection_weekly_current_source', {
+              source: estimateSource,
+              time: updatedAt || t('monitoring.codex_inspection_weekly_time_unknown'),
             })}
           </span>
         </>
@@ -108,6 +142,7 @@ export function CodexWeeklyPoolEstimate({
             <div className={styles.weeklyEstimateHeuristic}>
               <span>{t('monitoring.codex_inspection_weekly_heuristic_title')}</span>
               <strong>≈ {formatUSD(PRO_20X_WEEKLY_HEURISTIC_USD)} / week</strong>
+              <small>{t('monitoring.codex_inspection_weekly_heuristic_formula')}</small>
               {normalizedUsedPercent !== null &&
               heuristicUsedUsd !== null &&
               heuristicRemainingUsd !== null ? (
@@ -119,7 +154,7 @@ export function CodexWeeklyPoolEstimate({
                   })}
                 </small>
               ) : null}
-              <small>{t('monitoring.codex_inspection_weekly_heuristic_disclaimer')}</small>
+              <small>{t('monitoring.codex_inspection_weekly_heuristic_refresh')}</small>
             </div>
           ) : null}
           <span className={styles.weeklyEstimateReason}>
@@ -138,6 +173,11 @@ export function CodexWeeklyPoolEstimate({
               : 'monitoring.codex_inspection_weekly_estimate_price_source',
             { sources, time: syncedAt }
           )}
+        </span>
+      ) : null}
+      {!hasValue ? (
+        <span className={styles.weeklyEstimateUpdateHint}>
+          {t('monitoring.codex_inspection_weekly_measured_refresh')}
         </span>
       ) : null}
       <details className={styles.weeklyEstimateMethod}>

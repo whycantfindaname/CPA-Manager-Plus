@@ -39,6 +39,8 @@ type Repository interface {
 	GetLatestRunByTriggerType(ctx context.Context, triggerType string) (model.CodexInspectionRun, bool, error)
 	ListResults(ctx context.Context, runID int64) ([]model.CodexInspectionResult, error)
 	ListResultsByIdentity(ctx context.Context, authIndex, accountID string, fromMS, beforeMS int64) ([]model.CodexInspectionResult, error)
+	GetWeeklyEstimateBaseline(ctx context.Context, authIndex, accountID string) (model.CodexWeeklyPoolEstimate, bool, error)
+	UpsertWeeklyEstimateBaseline(ctx context.Context, authIndex, accountID string, estimate model.CodexWeeklyPoolEstimate) error
 	ListLogs(ctx context.Context, runID int64) ([]model.CodexInspectionLog, error)
 	ListDisableOwnership(ctx context.Context) ([]model.CodexInspectionDisableOwnership, error)
 	UpsertDisableOwnership(ctx context.Context, item model.CodexInspectionDisableOwnership) error
@@ -220,6 +222,13 @@ func (r *repository) InsertResult(ctx context.Context, result model.CodexInspect
 	result.QuotaWindowsJSON = quotaWindowsJSON
 	result.QuotaWindows = quotaWindows
 	result.QuotaInventoryObserved = quotaInventoryObserved
+	creditsUsageJSON := strings.TrimSpace(result.CreditsUsageJSON)
+	if creditsUsageJSON == "" && result.CreditsUsage != nil {
+		if data, err := json.Marshal(result.CreditsUsage); err == nil {
+			creditsUsageJSON = string(data)
+		}
+	}
+	result.CreditsUsageJSON = creditsUsageJSON
 	result.ActionStatus = model.NormalizeCodexInspectionActionStatus(result.ActionStatus, result.Action)
 	disabled := 0
 	if result.Disabled {
@@ -241,8 +250,8 @@ func (r *repository) InsertResult(ctx context.Context, result model.CodexInspect
 			run_id, account_key, file_name, display_account, account_snapshot, auth_index, account_id,
 			provider, disabled, status, state, action, action_reason, status_code,
 			used_percent, is_quota, auto_recover_eligible, error, action_status, executed_action, action_error,
-			plan_type, quota_windows_json, error_kind, error_detail, created_at_ms
-		) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			plan_type, quota_windows_json, credits_usage_json, error_kind, error_detail, created_at_ms
+		) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		on conflict(run_id, account_key) do update set
 			file_name = excluded.file_name,
 			display_account = excluded.display_account,
@@ -267,6 +276,10 @@ func (r *repository) InsertResult(ctx context.Context, result model.CodexInspect
 			quota_windows_json = case
 				when excluded.quota_windows_json is not null then excluded.quota_windows_json
 				else codex_inspection_results.quota_windows_json
+			end,
+			credits_usage_json = case
+				when excluded.credits_usage_json is not null then excluded.credits_usage_json
+				else codex_inspection_results.credits_usage_json
 			end,
 				error_kind = excluded.error_kind,
 				error_detail = excluded.error_detail,
@@ -295,6 +308,7 @@ func (r *repository) InsertResult(ctx context.Context, result model.CodexInspect
 			nullString(result.ActionError),
 			nullString(result.PlanType),
 			nullStringIf(result.QuotaInventoryObserved, result.QuotaWindowsJSON),
+			nullString(result.CreditsUsageJSON),
 			nullString(result.ErrorKind),
 			nullString(result.ErrorDetail),
 			result.CreatedAtMS,
@@ -447,7 +461,7 @@ func (r *repository) ListResults(ctx context.Context, runID int64) ([]model.Code
 			id, run_id, account_key, file_name, display_account, account_snapshot, auth_index, account_id,
 			provider, disabled, status, state, action, action_reason, status_code,
 			used_percent, is_quota, auto_recover_eligible, error, action_status, executed_action, action_error,
-			plan_type, quota_windows_json, error_kind, error_detail, created_at_ms
+			plan_type, quota_windows_json, credits_usage_json, error_kind, error_detail, created_at_ms
 		from codex_inspection_results
 		where run_id = ?
 		order by file_name asc, display_account asc, id asc`,
@@ -481,7 +495,7 @@ func (r *repository) ListResultsByIdentity(ctx context.Context, authIndex, accou
 			id, run_id, account_key, file_name, display_account, account_snapshot, auth_index, account_id,
 			provider, disabled, status, state, action, action_reason, status_code,
 			used_percent, is_quota, auto_recover_eligible, error, action_status, executed_action, action_error,
-			plan_type, quota_windows_json, error_kind, error_detail, created_at_ms
+			plan_type, quota_windows_json, credits_usage_json, error_kind, error_detail, created_at_ms
 		from codex_inspection_results
 		where provider = ? and auth_index = ? and account_id = ? and created_at_ms >= ? and created_at_ms < ?
 		order by created_at_ms asc, id asc`,
@@ -505,6 +519,47 @@ func (r *repository) ListResultsByIdentity(ctx context.Context, authIndex, accou
 		results = append(results, result)
 	}
 	return results, rows.Err()
+}
+
+func (r *repository) GetWeeklyEstimateBaseline(ctx context.Context, authIndex, accountID string) (model.CodexWeeklyPoolEstimate, bool, error) {
+	authIndex = strings.TrimSpace(authIndex)
+	accountID = strings.TrimSpace(accountID)
+	if authIndex == "" || accountID == "" {
+		return model.CodexWeeklyPoolEstimate{}, false, nil
+	}
+	var raw string
+	err := r.db.QueryRowContext(ctx, `select estimate_json from codex_weekly_estimate_baselines where auth_index = ? and account_id = ?`, authIndex, accountID).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.CodexWeeklyPoolEstimate{}, false, nil
+	}
+	if err != nil {
+		return model.CodexWeeklyPoolEstimate{}, false, err
+	}
+	var estimate model.CodexWeeklyPoolEstimate
+	if err := json.Unmarshal([]byte(raw), &estimate); err != nil {
+		return model.CodexWeeklyPoolEstimate{}, false, err
+	}
+	return estimate, true, nil
+}
+
+func (r *repository) UpsertWeeklyEstimateBaseline(ctx context.Context, authIndex, accountID string, estimate model.CodexWeeklyPoolEstimate) error {
+	authIndex = strings.TrimSpace(authIndex)
+	accountID = strings.TrimSpace(accountID)
+	if authIndex == "" || accountID == "" || estimate.WeeklyPoolUSD == nil || estimate.UpdatedAtMS <= 0 {
+		return nil
+	}
+	raw, err := json.Marshal(estimate)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(ctx, `insert into codex_weekly_estimate_baselines(auth_index, account_id, estimate_json, updated_at_ms)
+		values (?, ?, ?, ?)
+		on conflict(auth_index, account_id) do update set
+			estimate_json = excluded.estimate_json,
+			updated_at_ms = excluded.updated_at_ms
+		where excluded.updated_at_ms >= codex_weekly_estimate_baselines.updated_at_ms`,
+		authIndex, accountID, string(raw), estimate.UpdatedAtMS)
+	return err
 }
 
 func (r *repository) ListDisableOwnership(ctx context.Context) ([]model.CodexInspectionDisableOwnership, error) {
@@ -861,7 +916,7 @@ func scanResult(row scanner) (model.CodexInspectionResult, error) {
 	var result model.CodexInspectionResult
 	var accountSnapshot, authIndex, accountID, provider, status, state, actionReason, errorText sql.NullString
 	var actionStatus, executedAction, actionError sql.NullString
-	var planType, quotaWindowsJSON, errorKind, errorDetail sql.NullString
+	var planType, quotaWindowsJSON, creditsUsageJSON, errorKind, errorDetail sql.NullString
 	var statusCode sql.NullInt64
 	var usedPercent sql.NullFloat64
 	var disabled, isQuota, autoRecoverEligible int
@@ -890,6 +945,7 @@ func scanResult(row scanner) (model.CodexInspectionResult, error) {
 		&actionError,
 		&planType,
 		&quotaWindowsJSON,
+		&creditsUsageJSON,
 		&errorKind,
 		&errorDetail,
 		&result.CreatedAtMS,
@@ -915,6 +971,13 @@ func scanResult(row scanner) (model.CodexInspectionResult, error) {
 	result.QuotaWindows, result.QuotaInventoryObserved = model.ParseCodexInspectionQuotaWindows(result.QuotaWindowsJSON)
 	if !result.QuotaInventoryObserved {
 		result.QuotaWindowsJSON = ""
+	}
+	result.CreditsUsageJSON = creditsUsageJSON.String
+	if result.CreditsUsageJSON != "" {
+		var usage model.CodexCreditsUsage
+		if json.Unmarshal([]byte(result.CreditsUsageJSON), &usage) == nil {
+			result.CreditsUsage = &usage
+		}
 	}
 	result.ErrorKind = errorKind.String
 	result.ErrorDetail = errorDetail.String

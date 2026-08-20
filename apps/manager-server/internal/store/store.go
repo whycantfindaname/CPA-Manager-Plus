@@ -41,6 +41,7 @@ type CodexInspectionRun = model.CodexInspectionRun
 type CodexInspectionResult = model.CodexInspectionResult
 type CodexInspectionLog = model.CodexInspectionLog
 type CodexInspectionDisableOwnership = model.CodexInspectionDisableOwnership
+type CodexWeeklyPoolEstimate = model.CodexWeeklyPoolEstimate
 type CodexInspectionLease = model.CodexInspectionLease
 type InsertResult = model.InsertResult
 type LegacyQuotaSnapshotBackfillResult = quotasnapshot.LegacyBackfillResult
@@ -396,6 +397,14 @@ func (s *Store) ListCodexInspectionResults(ctx context.Context, runID int64) ([]
 
 func (s *Store) ListCodexInspectionResultsByIdentity(ctx context.Context, authIndex, accountID string, fromMS, beforeMS int64) ([]CodexInspectionResult, error) {
 	return s.CodexInspections.ListResultsByIdentity(ctx, authIndex, accountID, fromMS, beforeMS)
+}
+
+func (s *Store) GetCodexWeeklyEstimateBaseline(ctx context.Context, authIndex, accountID string) (CodexWeeklyPoolEstimate, bool, error) {
+	return s.CodexInspections.GetWeeklyEstimateBaseline(ctx, authIndex, accountID)
+}
+
+func (s *Store) UpsertCodexWeeklyEstimateBaseline(ctx context.Context, authIndex, accountID string, estimate CodexWeeklyPoolEstimate) error {
+	return s.CodexInspections.UpsertWeeklyEstimateBaseline(ctx, authIndex, accountID, estimate)
 }
 
 func (s *Store) ListCodexInspectionLogs(ctx context.Context, runID int64) ([]CodexInspectionLog, error) {

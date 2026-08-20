@@ -34,6 +34,7 @@ import (
 
 const (
 	codexUsageURL             = "https://chatgpt.com/backend-api/wham/usage"
+	codexAnalyticsURL         = "https://chatgpt.com/backend-api/wham/analytics/daily-workspace-usage-counts"
 	codexFiveHourWindow       = 18_000
 	codexWeekWindow           = 604_800
 	codexMonthWindow          = 2_592_000
@@ -1824,6 +1825,11 @@ func (s *Service) inspectSingleAccount(
 		// and a successful response whose quota schema could not be recognized.
 		base.QuotaWindowsJSON = "[]"
 	}
+	if weekly := standardWeeklyQuotaWindow(base.QuotaWindows); weekly != nil {
+		if creditsUsage, creditsErr := s.requestCodexCreditsUsage(ctx, setup, settings, item, *weekly); creditsErr == nil {
+			base.CreditsUsage = creditsUsage
+		}
+	}
 	base.Error = ""
 	if statusCode < 200 || statusCode >= 300 {
 		base.ErrorKind = "http_status"
@@ -1867,6 +1873,17 @@ func (s *Service) requestCodexUsageAt(
 	item account,
 	path string,
 ) (apiCallResponse, int, error) {
+	return s.requestCodexURLAt(ctx, setup, settings, item, path, codexUsageURL)
+}
+
+func (s *Service) requestCodexURLAt(
+	ctx context.Context,
+	setup store.Setup,
+	settings model.ManagerCodexInspectionConfig,
+	item account,
+	path string,
+	upstreamURL string,
+) (apiCallResponse, int, error) {
 	headers := map[string]string{
 		"Authorization": "Bearer $TOKEN$",
 		"Content-Type":  "application/json",
@@ -1878,7 +1895,7 @@ func (s *Service) requestCodexUsageAt(
 	payload := map[string]any{
 		"authIndex": item.AuthIndex,
 		"method":    http.MethodGet,
-		"url":       codexUsageURL,
+		"url":       upstreamURL,
 		"header":    headers,
 	}
 	data, err := json.Marshal(payload)
@@ -1927,6 +1944,66 @@ func (s *Service) requestCodexUsageAt(
 		BodyText:      bodyText,
 		Body:          bodyValue,
 	}, res.StatusCode, nil
+}
+
+func (s *Service) requestCodexCreditsUsage(
+	ctx context.Context,
+	setup store.Setup,
+	settings model.ManagerCodexInspectionConfig,
+	item account,
+	weekly model.CodexInspectionQuotaWindow,
+) (*model.CodexCreditsUsage, error) {
+	if weekly.ResetAtMS <= 0 || weekly.LimitWindowSeconds == nil {
+		return nil, nil
+	}
+	cycleStart := time.UnixMilli(weekly.ResetAtMS).Add(-time.Duration(*weekly.LimitWindowSeconds) * time.Second).In(time.Local)
+	cycleStartDate := cycleStart.Format(time.DateOnly)
+	endDate := time.Now().In(time.Local).AddDate(0, 0, 1).Format(time.DateOnly)
+	query := url.Values{}
+	query.Set("start_date", cycleStartDate)
+	query.Set("end_date", endDate)
+	query.Set("group_by", "day")
+	response, _, err := s.requestCodexURLAt(
+		ctx,
+		setup,
+		settings,
+		item,
+		"/v0/management/api-call",
+		codexAnalyticsURL+"?"+query.Encode(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if !response.HasStatusCode || response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, fmt.Errorf("analytics returned HTTP %d", response.StatusCode)
+	}
+	payload := parseRecord(response.Body)
+	if payload == nil {
+		payload = parseRecord(response.BodyText)
+	}
+	rows, _ := payload["data"].([]any)
+	usage := &model.CodexCreditsUsage{
+		CycleStartDate: cycleStartDate,
+		ObservedAtMS:   time.Now().UnixMilli(),
+	}
+	for _, raw := range rows {
+		row, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		date := strings.TrimSpace(readString(row, "date"))
+		if date == "" {
+			continue
+		}
+		if date > usage.LatestDate {
+			usage.LatestDate = date
+		}
+		if date < cycleStartDate {
+			continue
+		}
+		usage.CurrentCycleCredits += readFloat(readMap(row, "totals")["credits"], 0)
+	}
+	return usage, nil
 }
 
 func decodeCPAAPICallResponse(body io.Reader, maxBytes int64, target any) error {

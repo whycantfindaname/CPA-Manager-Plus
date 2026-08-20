@@ -13,6 +13,9 @@ import { CodexInspectionResultsPanel } from './CodexInspectionResultsPanel';
 
 const t = ((key: string, options?: Record<string, unknown>) => {
   if (options?.cost) return `${key}:${options.cost}:${options.percent}`;
+  if (options?.source && options?.status) return `${key}:${options.source}:${options.status}`;
+  if (options?.source && options?.time) return `${key}:${options.source}:${options.time}`;
+  if (options?.credits) return `${key}:${options.credits}:${options.percent}:${options.rate}`;
   if (options?.percent) return `${key}:${options.percent}`;
   if (options?.count !== undefined) return `${key}:${options.count}`;
   return key;
@@ -132,6 +135,7 @@ describe('CodexInspectionResultsPanel', () => {
         weeklyPoolEstimate: {
           official: false,
           basis: 'api_equivalent_cost',
+          source: 'cpa_current',
           status: 'reliable',
           weeklyPoolUsd: 2040,
           costDeltaUsd: 102,
@@ -145,10 +149,39 @@ describe('CodexInspectionResultsPanel', () => {
 
     expect(estimate).toBeDefined();
     expect(text).toContain('monitoring.codex_inspection_weekly_estimate_title');
-    expect(text).toContain('monitoring.codex_inspection_weekly_estimate_status_reliable');
+    expect(text).toContain(
+      'monitoring.codex_inspection_weekly_estimate_source_status:monitoring.codex_inspection_weekly_source_cpa_current:monitoring.codex_inspection_weekly_estimate_status_reliable'
+    );
     expect(text).toContain('monitoring.codex_inspection_weekly_estimate_equation:$102:5%');
     expect(text).toContain('monitoring.codex_inspection_weekly_estimate_disclaimer');
     expect(text).toContain('monitoring.codex_inspection_weekly_estimate_price_source');
+  });
+
+  it('labels a Credits-learned value and shows its own formula', () => {
+    const renderer = renderPanel(
+      createItem({
+        weeklyPoolEstimate: {
+          official: false,
+          basis: 'credits',
+          source: 'credits_learned',
+          status: 'preliminary',
+          weeklyPoolUsd: 2000,
+          credits: 2000,
+          usdPerCredit: 0.04,
+          usedPercentDelta: 4,
+          updatedAtMs: 1_800_000_000_000,
+        },
+      })
+    );
+    const text = collectText(renderer);
+
+    expect(text).toContain(
+      'monitoring.codex_inspection_weekly_estimate_source_status:monitoring.codex_inspection_weekly_source_credits_learned:monitoring.codex_inspection_weekly_estimate_status_preliminary'
+    );
+    expect(text).toContain('monitoring.codex_inspection_weekly_credits_equation:2000.00:4%:$0.04');
+    expect(
+      text.some((value) => value.startsWith('monitoring.codex_inspection_weekly_current_source:'))
+    ).toBe(true);
   });
 
   it('shows a visible Pro 20x heuristic while the measured estimate is collecting', () => {
@@ -172,7 +205,9 @@ describe('CodexInspectionResultsPanel', () => {
     expect(text).toContain('monitoring.codex_inspection_weekly_heuristic_title');
     expect(heuristicValue).toBeDefined();
     expect(text).toContain('monitoring.codex_inspection_weekly_heuristic_usage:3%');
-    expect(text).toContain('monitoring.codex_inspection_weekly_heuristic_disclaimer');
+    expect(text).toContain('monitoring.codex_inspection_weekly_heuristic_formula');
+    expect(text).toContain('monitoring.codex_inspection_weekly_heuristic_refresh');
+    expect(text).toContain('monitoring.codex_inspection_weekly_measured_refresh');
     expect(
       text.some((value) =>
         value.startsWith('monitoring.codex_inspection_weekly_estimate_reason_cost_missing')

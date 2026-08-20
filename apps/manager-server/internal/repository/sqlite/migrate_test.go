@@ -1443,6 +1443,15 @@ func TestCodexInspectionAutoRecoverySchema(t *testing.T) {
 	if !columns["auto_recover_eligible"] {
 		t.Fatalf("codex inspection results columns = %#v, want auto_recover_eligible", columns)
 	}
+	if !columns["credits_usage_json"] {
+		t.Fatalf("codex inspection results columns = %#v, want credits_usage_json", columns)
+	}
+	baselineColumns := migrationTableColumns(t, db, "codex_weekly_estimate_baselines")
+	for _, column := range []string{"auth_index", "account_id", "estimate_json", "updated_at_ms"} {
+		if !baselineColumns[column] {
+			t.Fatalf("weekly estimate baseline columns = %#v, missing %s", baselineColumns, column)
+		}
+	}
 	ownershipColumns := migrationTableColumns(t, db, "codex_inspection_disable_ownership")
 	for _, column := range []string{"file_name", "provider", "auth_index", "account_id", "account_snapshot", "disabled_at_ms", "updated_at_ms"} {
 		if !ownershipColumns[column] {

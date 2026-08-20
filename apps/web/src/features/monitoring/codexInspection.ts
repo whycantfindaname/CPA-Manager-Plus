@@ -165,7 +165,8 @@ export type CodexWeeklyPoolEstimateStatus =
 
 export interface CodexWeeklyPoolEstimate {
   official: boolean;
-  basis: 'api_equivalent_cost' | string;
+  basis: 'api_equivalent_cost' | 'credits' | string;
+  source?: 'cpa_current' | 'credits_current' | 'cpa_learned' | 'credits_learned' | string;
   status: CodexWeeklyPoolEstimateStatus;
   reason?: string;
   weeklyPoolUsd?: number | null;
@@ -177,6 +178,9 @@ export interface CodexWeeklyPoolEstimate {
   priceSources?: string[];
   priceSyncedAtMs?: number;
   priceUpdatedAtMs?: number;
+  credits?: number;
+  usdPerCredit?: number;
+  updatedAtMs?: number;
 }
 
 export interface CodexInspectionResultItem extends CodexInspectionAccount {

@@ -744,11 +744,19 @@ func Migrate(db *sql.DB) error {
 			error text,
 			plan_type text,
 			quota_windows_json text,
+			credits_usage_json text,
 			error_kind text,
 			error_detail text,
 			created_at_ms integer not null,
 			foreign key(run_id) references codex_inspection_runs(id) on delete cascade,
 			unique(run_id, account_key)
+		)`,
+		`create table if not exists codex_weekly_estimate_baselines (
+			auth_index text not null,
+			account_id text not null,
+			estimate_json text not null,
+			updated_at_ms integer not null,
+			primary key (auth_index, account_id)
 		)`,
 		`create table if not exists codex_inspection_logs (
 			id integer primary key autoincrement,
@@ -2580,6 +2588,7 @@ func ensureCodexInspectionResultColumns(db *sql.DB) error {
 		{name: "account_snapshot", definition: "text"},
 		{name: "plan_type", definition: "text"},
 		{name: "quota_windows_json", definition: "text"},
+		{name: "credits_usage_json", definition: "text"},
 		{name: "error_kind", definition: "text"},
 		{name: "error_detail", definition: "text"},
 		{name: "auto_recover_eligible", definition: "integer not null default 0"},

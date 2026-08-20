@@ -129,10 +129,65 @@ func TestGetRunEstimatesWeeklyPoolPerAccountAndResetWindow(t *testing.T) {
 	}
 }
 
+func TestGetRunUsesCreditsThenCarriesLearnedBaselineAcrossReset(t *testing.T) {
+	ctx := context.Background()
+	db := newCodexInspectionTestStore(t)
+	svc := newCodexInspectionTestService(t, db)
+	firstAtMS := int64(1_800_000_000_000)
+	firstResetAtMS := firstAtMS + int64(codexWeekWindow)*1000
+	firstRun := insertWeeklyInspectionRun(t, db, firstAtMS, firstResetAtMS, []weeklyInspectionSample{
+		{
+			authIndex:   "auth-a",
+			accountID:   "account-a",
+			usedPercent: 4,
+			creditsUsage: &model.CodexCreditsUsage{
+				CurrentCycleCredits: 2_000,
+				CycleStartDate:      "2027-01-01",
+				LatestDate:          "2027-01-02",
+				ObservedAtMS:        firstAtMS,
+			},
+		},
+	})
+	firstDetail, err := svc.GetRun(ctx, firstRun.ID)
+	if err != nil {
+		t.Fatalf("get credits run: %v", err)
+	}
+	first := firstDetail.Results[0].WeeklyPoolEstimate
+	if first == nil || first.WeeklyPoolUSD == nil || math.Abs(*first.WeeklyPoolUSD-2_000) > 0.000001 {
+		t.Fatalf("credits estimate = %#v, want $2,000", first)
+	}
+	if first.Basis != weeklyEstimateBasisCredits || first.Source != weeklyEstimateSourceCreditsCurrent {
+		t.Fatalf("credits provenance = %#v", first)
+	}
+
+	secondAtMS := firstResetAtMS + int64(time.Hour/time.Millisecond)
+	secondResetAtMS := firstResetAtMS + int64(codexWeekWindow)*1000
+	secondRun := insertWeeklyInspectionRun(t, db, secondAtMS, secondResetAtMS, []weeklyInspectionSample{
+		{authIndex: "auth-a", accountID: "account-a", usedPercent: 0},
+		{authIndex: "auth-b", accountID: "account-b", usedPercent: 0},
+	})
+	secondDetail, err := svc.GetRun(ctx, secondRun.ID)
+	if err != nil {
+		t.Fatalf("get learned run: %v", err)
+	}
+	learned := map[string]*model.CodexWeeklyPoolEstimate{}
+	for index := range secondDetail.Results {
+		learned[secondDetail.Results[index].AccountID] = secondDetail.Results[index].WeeklyPoolEstimate
+	}
+	if estimate := learned["account-a"]; estimate == nil || estimate.WeeklyPoolUSD == nil ||
+		math.Abs(*estimate.WeeklyPoolUSD-2_000) > 0.000001 || estimate.Source != weeklyEstimateSourceCreditsLearned {
+		t.Fatalf("learned estimate = %#v, want account-a credits baseline", estimate)
+	}
+	if estimate := learned["account-b"]; estimate == nil || estimate.WeeklyPoolUSD != nil {
+		t.Fatalf("account-b estimate = %#v, want isolated empty baseline", estimate)
+	}
+}
+
 type weeklyInspectionSample struct {
-	authIndex   string
-	accountID   string
-	usedPercent float64
+	authIndex    string
+	accountID    string
+	usedPercent  float64
+	creditsUsage *model.CodexCreditsUsage
 }
 
 func insertWeeklyInspectionRun(t *testing.T, db *store.Store, createdAtMS, resetAtMS int64, samples []weeklyInspectionSample) model.CodexInspectionRun {
@@ -172,7 +227,8 @@ func insertWeeklyInspectionRun(t *testing.T, db *store.Store, createdAtMS, reset
 					LimitWindowSeconds: &windowSeconds,
 				},
 			},
-			CreatedAtMS: createdAtMS,
+			CreditsUsage: sample.creditsUsage,
+			CreatedAtMS:  createdAtMS,
 		})
 		if err != nil {
 			t.Fatalf("insert inspection result: %v", err)

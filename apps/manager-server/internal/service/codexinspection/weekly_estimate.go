@@ -13,8 +13,14 @@ import (
 )
 
 const (
-	weeklyEstimateBasisAPIEquivalent = "api_equivalent_cost"
-	weeklyResetDriftTolerance        = time.Minute
+	weeklyEstimateBasisAPIEquivalent   = "api_equivalent_cost"
+	weeklyEstimateBasisCredits         = "credits"
+	weeklyEstimateSourceCPACurrent     = "cpa_current"
+	weeklyEstimateSourceCreditsCurrent = "credits_current"
+	weeklyEstimateSourceCPALearned     = "cpa_learned"
+	weeklyEstimateSourceCreditsLearned = "credits_learned"
+	weeklyEstimateUSDPerCredit         = 0.04
+	weeklyResetDriftTolerance          = time.Minute
 
 	weeklyEstimateStatusUnavailable  = "unavailable"
 	weeklyEstimateStatusInsufficient = "insufficient"
@@ -92,35 +98,91 @@ func (s *Service) attachWeeklyPoolEstimates(ctx context.Context, results []model
 		pending = append(pending, pendingWeeklyEstimate{resultIndex: index, baseline: baseline})
 	}
 
-	if len(pending) == 0 {
-		return
-	}
-	_ = s.store.WithModelPriceSnapshot(func() error {
-		prices, err := s.store.LoadModelPrices(ctx)
-		if err != nil {
+	if len(pending) > 0 {
+		_ = s.store.WithModelPriceSnapshot(func() error {
+			prices, err := s.store.LoadModelPrices(ctx)
+			if err != nil {
+				for _, item := range pending {
+					results[item.resultIndex].WeeklyPoolEstimate.Reason = "prices_unavailable"
+				}
+				return nil
+			}
 			for _, item := range pending {
-				results[item.resultIndex].WeeklyPoolEstimate.Reason = "prices_unavailable"
+				current := &results[item.resultIndex]
+				estimate := current.WeeklyPoolEstimate
+				stats, statsErr := s.store.ModelStatsWithFilter(ctx, store.AnalyticsFilter{
+					FromMS:        item.baseline.CreatedAtMS,
+					ToMS:          current.CreatedAtMS,
+					Providers:     []string{model.CodexInspectionTargetCodex},
+					AuthIndices:   []string{current.AuthIndex},
+					IncludeFailed: true,
+				}, 0)
+				if statsErr != nil {
+					estimate.Reason = "cost_unavailable"
+					continue
+				}
+				applyWeeklyEstimateCost(estimate, stats, prices)
 			}
 			return nil
+		})
+	}
+	s.adoptWeeklyEstimateBaselines(ctx, results)
+}
+
+func (s *Service) adoptWeeklyEstimateBaselines(ctx context.Context, results []model.CodexInspectionResult) {
+	for index := range results {
+		current := &results[index]
+		estimate := current.WeeklyPoolEstimate
+		if estimate == nil {
+			continue
 		}
-		for _, item := range pending {
-			current := &results[item.resultIndex]
-			estimate := current.WeeklyPoolEstimate
-			stats, statsErr := s.store.ModelStatsWithFilter(ctx, store.AnalyticsFilter{
-				FromMS:        item.baseline.CreatedAtMS,
-				ToMS:          current.CreatedAtMS,
-				Providers:     []string{model.CodexInspectionTargetCodex},
-				AuthIndices:   []string{current.AuthIndex},
-				IncludeFailed: true,
-			}, 0)
-			if statsErr != nil {
-				estimate.Reason = "cost_unavailable"
-				continue
-			}
-			applyWeeklyEstimateCost(estimate, stats, prices)
+		if estimate.WeeklyPoolUSD != nil {
+			estimate.Source = weeklyEstimateSourceCPACurrent
+			estimate.UpdatedAtMS = current.CreatedAtMS
+			_ = s.store.UpsertCodexWeeklyEstimateBaseline(ctx, current.AuthIndex, current.AccountID, *estimate)
+			continue
 		}
+		if creditsEstimate := creditsWeeklyEstimate(*current); creditsEstimate != nil {
+			current.WeeklyPoolEstimate = creditsEstimate
+			_ = s.store.UpsertCodexWeeklyEstimateBaseline(ctx, current.AuthIndex, current.AccountID, *creditsEstimate)
+			continue
+		}
+		learned, found, err := s.store.GetCodexWeeklyEstimateBaseline(ctx, current.AuthIndex, current.AccountID)
+		if err != nil || !found || learned.WeeklyPoolUSD == nil {
+			continue
+		}
+		switch learned.Source {
+		case weeklyEstimateSourceCPACurrent, weeklyEstimateSourceCPALearned:
+			learned.Source = weeklyEstimateSourceCPALearned
+		case weeklyEstimateSourceCreditsCurrent, weeklyEstimateSourceCreditsLearned:
+			learned.Source = weeklyEstimateSourceCreditsLearned
+		}
+		current.WeeklyPoolEstimate = &learned
+	}
+}
+
+func creditsWeeklyEstimate(result model.CodexInspectionResult) *model.CodexWeeklyPoolEstimate {
+	weekly := standardWeeklyQuotaWindow(result.QuotaWindows)
+	usage := result.CreditsUsage
+	if weekly == nil || weekly.UsedPercent == nil || *weekly.UsedPercent < 1 || weekly.ResetAtMS <= 0 ||
+		usage == nil || usage.CurrentCycleCredits <= 0 || usage.CycleStartDate == "" || usage.LatestDate < usage.CycleStartDate {
 		return nil
-	})
+	}
+	value := usage.CurrentCycleCredits / (*weekly.UsedPercent / 100) * weeklyEstimateUSDPerCredit
+	return &model.CodexWeeklyPoolEstimate{
+		Official:         false,
+		Basis:            weeklyEstimateBasisCredits,
+		Source:           weeklyEstimateSourceCreditsCurrent,
+		Status:           weeklyEstimateStatusPreliminary,
+		WeeklyPoolUSD:    &value,
+		CostDeltaUSD:     usage.CurrentCycleCredits * weeklyEstimateUSDPerCredit,
+		UsedPercentDelta: *weekly.UsedPercent,
+		CurrentAtMS:      result.CreatedAtMS,
+		WeeklyResetAtMS:  weekly.ResetAtMS,
+		Credits:          usage.CurrentCycleCredits,
+		USDPerCredit:     weeklyEstimateUSDPerCredit,
+		UpdatedAtMS:      usage.ObservedAtMS,
+	}
 }
 
 func standardWeeklyQuotaWindow(windows []model.CodexInspectionQuotaWindow) *model.CodexInspectionQuotaWindow {
