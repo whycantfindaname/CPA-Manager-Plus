@@ -994,6 +994,29 @@
   line-height: 1.1;
 }
 
+.weeklyEstimateHeuristic {
+  display: grid;
+  gap: 3px;
+  padding: 8px 9px;
+  border-left: 3px solid var(--inspect-accent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--inspect-accent) 7%, var(--inspect-surface));
+}
+
+.weeklyEstimateHeuristic > span,
+.weeklyEstimateHeuristic > small {
+  color: var(--inspect-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.weeklyEstimateHeuristic > strong {
+  color: var(--inspect-ink);
+  font-family: var(--font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 17px;
+  line-height: 1.2;
+}
+
 .weeklyEstimateEquation,
 .weeklyEstimateReason,
 .weeklyEstimatePriceSource,

@@ -151,6 +151,35 @@ describe('CodexInspectionResultsPanel', () => {
     expect(text).toContain('monitoring.codex_inspection_weekly_estimate_price_source');
   });
 
+  it('shows a visible Pro 20x heuristic while the measured estimate is collecting', () => {
+    const renderer = renderPanel(
+      createItem({
+        planType: 'pro',
+        usedPercent: 3,
+        weeklyPoolEstimate: {
+          official: false,
+          basis: 'api_equivalent_cost',
+          status: 'unavailable',
+          reason: 'cost_missing',
+        },
+      })
+    );
+    const text = collectText(renderer);
+    const heuristicValue = renderer.root
+      .findAllByType('strong')
+      .find((node) => node.children.join('') === '≈ $2,000 / week');
+
+    expect(text).toContain('monitoring.codex_inspection_weekly_heuristic_title');
+    expect(heuristicValue).toBeDefined();
+    expect(text).toContain('monitoring.codex_inspection_weekly_heuristic_usage:3%');
+    expect(text).toContain('monitoring.codex_inspection_weekly_heuristic_disclaimer');
+    expect(
+      text.some((value) =>
+        value.startsWith('monitoring.codex_inspection_weekly_estimate_reason_cost_missing')
+      )
+    ).toBe(true);
+  });
+
   it('opens the credential represented by a result card', () => {
     const item = createItem({ authIndex: 'auth-1' });
     const onOpenCredential = vi.fn();

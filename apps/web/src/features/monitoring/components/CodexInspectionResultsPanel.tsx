@@ -345,7 +345,12 @@ export function CodexInspectionResultsPanel({
                         fallbackUsedPercent={item.usedPercent}
                         t={t}
                       />
-                      <CodexWeeklyPoolEstimate estimate={item.weeklyPoolEstimate} t={t} />
+                      <CodexWeeklyPoolEstimate
+                        estimate={item.weeklyPoolEstimate}
+                        planType={item.planType}
+                        usedPercent={item.usedPercent}
+                        t={t}
+                      />
                     </section>
 
                     <section
