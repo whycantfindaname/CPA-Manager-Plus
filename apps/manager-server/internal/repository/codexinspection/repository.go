@@ -40,6 +40,7 @@ type Repository interface {
 	ListResults(ctx context.Context, runID int64) ([]model.CodexInspectionResult, error)
 	ListResultsByIdentity(ctx context.Context, authIndex, accountID string, fromMS, beforeMS int64) ([]model.CodexInspectionResult, error)
 	GetWeeklyEstimateBaseline(ctx context.Context, authIndex, accountID string) (model.CodexWeeklyPoolEstimate, bool, error)
+	ListWeeklyEstimateBaselines(ctx context.Context, authIndex, accountID string) ([]model.CodexWeeklyPoolEstimate, error)
 	UpsertWeeklyEstimateBaseline(ctx context.Context, authIndex, accountID string, estimate model.CodexWeeklyPoolEstimate) error
 	ListLogs(ctx context.Context, runID int64) ([]model.CodexInspectionLog, error)
 	ListDisableOwnership(ctx context.Context) ([]model.CodexInspectionDisableOwnership, error)
@@ -522,24 +523,59 @@ func (r *repository) ListResultsByIdentity(ctx context.Context, authIndex, accou
 }
 
 func (r *repository) GetWeeklyEstimateBaseline(ctx context.Context, authIndex, accountID string) (model.CodexWeeklyPoolEstimate, bool, error) {
+	estimates, err := r.ListWeeklyEstimateBaselines(ctx, authIndex, accountID)
+	if err != nil || len(estimates) == 0 {
+		return model.CodexWeeklyPoolEstimate{}, false, err
+	}
+	for _, estimate := range estimates {
+		if estimate.Basis == "api_equivalent_cost" {
+			return estimate, true, nil
+		}
+	}
+	return estimates[0], true, nil
+}
+
+type weeklyEstimateBaselineSet struct {
+	APICurrent          *model.CodexWeeklyPoolEstimate `json:"apiCurrent,omitempty"`
+	APIFormal           *model.CodexWeeklyPoolEstimate `json:"apiFormal,omitempty"`
+	LegacyAPIEquivalent *model.CodexWeeklyPoolEstimate `json:"apiEquivalent,omitempty"`
+	CreditsCurrent      *model.CodexWeeklyPoolEstimate `json:"creditsCurrent,omitempty"`
+	CreditsFormal       *model.CodexWeeklyPoolEstimate `json:"creditsFormal,omitempty"`
+	LegacyCredits       *model.CodexWeeklyPoolEstimate `json:"credits,omitempty"`
+}
+
+func (r *repository) ListWeeklyEstimateBaselines(ctx context.Context, authIndex, accountID string) ([]model.CodexWeeklyPoolEstimate, error) {
 	authIndex = strings.TrimSpace(authIndex)
 	accountID = strings.TrimSpace(accountID)
 	if authIndex == "" || accountID == "" {
-		return model.CodexWeeklyPoolEstimate{}, false, nil
+		return nil, nil
 	}
 	var raw string
 	err := r.db.QueryRowContext(ctx, `select estimate_json from codex_weekly_estimate_baselines where auth_index = ? and account_id = ?`, authIndex, accountID).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
-		return model.CodexWeeklyPoolEstimate{}, false, nil
+		return nil, nil
 	}
 	if err != nil {
-		return model.CodexWeeklyPoolEstimate{}, false, err
+		return nil, err
 	}
-	var estimate model.CodexWeeklyPoolEstimate
-	if err := json.Unmarshal([]byte(raw), &estimate); err != nil {
-		return model.CodexWeeklyPoolEstimate{}, false, err
+	set, err := decodeWeeklyEstimateBaselineSet(raw)
+	if err != nil {
+		return nil, err
 	}
-	return estimate, true, nil
+	estimates := make([]model.CodexWeeklyPoolEstimate, 0, 4)
+	if set.APICurrent != nil {
+		estimates = append(estimates, *set.APICurrent)
+	}
+	if set.APIFormal != nil {
+		estimates = append(estimates, *set.APIFormal)
+	}
+	if set.CreditsFormal != nil {
+		estimates = append(estimates, *set.CreditsFormal)
+	}
+	if set.CreditsCurrent != nil {
+		estimates = append(estimates, *set.CreditsCurrent)
+	}
+	return estimates, nil
 }
 
 func (r *repository) UpsertWeeklyEstimateBaseline(ctx context.Context, authIndex, accountID string, estimate model.CodexWeeklyPoolEstimate) error {
@@ -548,18 +584,97 @@ func (r *repository) UpsertWeeklyEstimateBaseline(ctx context.Context, authIndex
 	if authIndex == "" || accountID == "" || estimate.WeeklyPoolUSD == nil || estimate.UpdatedAtMS <= 0 {
 		return nil
 	}
-	raw, err := json.Marshal(estimate)
+	estimates, err := r.ListWeeklyEstimateBaselines(ctx, authIndex, accountID)
 	if err != nil {
 		return err
+	}
+	set := weeklyEstimateBaselineSet{}
+	for index := range estimates {
+		set.put(estimates[index])
+	}
+	existing := set.forEstimate(estimate)
+	if existing != nil && existing.UpdatedAtMS > estimate.UpdatedAtMS {
+		return nil
+	}
+	set.put(estimate)
+	raw, err := json.Marshal(set)
+	if err != nil {
+		return err
+	}
+	updatedAtMS := estimate.UpdatedAtMS
+	if set.APICurrent != nil && set.APICurrent.UpdatedAtMS > updatedAtMS {
+		updatedAtMS = set.APICurrent.UpdatedAtMS
+	}
+	if set.APIFormal != nil && set.APIFormal.UpdatedAtMS > updatedAtMS {
+		updatedAtMS = set.APIFormal.UpdatedAtMS
+	}
+	if set.CreditsCurrent != nil && set.CreditsCurrent.UpdatedAtMS > updatedAtMS {
+		updatedAtMS = set.CreditsCurrent.UpdatedAtMS
+	}
+	if set.CreditsFormal != nil && set.CreditsFormal.UpdatedAtMS > updatedAtMS {
+		updatedAtMS = set.CreditsFormal.UpdatedAtMS
 	}
 	_, err = r.db.ExecContext(ctx, `insert into codex_weekly_estimate_baselines(auth_index, account_id, estimate_json, updated_at_ms)
 		values (?, ?, ?, ?)
 		on conflict(auth_index, account_id) do update set
 			estimate_json = excluded.estimate_json,
-			updated_at_ms = excluded.updated_at_ms
-		where excluded.updated_at_ms >= codex_weekly_estimate_baselines.updated_at_ms`,
-		authIndex, accountID, string(raw), estimate.UpdatedAtMS)
+			updated_at_ms = excluded.updated_at_ms`,
+		authIndex, accountID, string(raw), updatedAtMS)
 	return err
+}
+
+func decodeWeeklyEstimateBaselineSet(raw string) (weeklyEstimateBaselineSet, error) {
+	var set weeklyEstimateBaselineSet
+	if err := json.Unmarshal([]byte(raw), &set); err != nil {
+		return weeklyEstimateBaselineSet{}, err
+	}
+	if set.LegacyCredits != nil && set.CreditsCurrent == nil {
+		set.CreditsCurrent = set.LegacyCredits
+		set.LegacyCredits = nil
+	}
+	if set.LegacyAPIEquivalent != nil {
+		set.put(*set.LegacyAPIEquivalent)
+		set.LegacyAPIEquivalent = nil
+	}
+	if set.APICurrent != nil || set.APIFormal != nil || set.CreditsCurrent != nil || set.CreditsFormal != nil {
+		return set, nil
+	}
+	var legacy model.CodexWeeklyPoolEstimate
+	if err := json.Unmarshal([]byte(raw), &legacy); err != nil {
+		return weeklyEstimateBaselineSet{}, err
+	}
+	set.put(legacy)
+	return set, nil
+}
+
+func (s *weeklyEstimateBaselineSet) put(estimate model.CodexWeeklyPoolEstimate) {
+	copyEstimate := estimate
+	if estimate.Basis == "credits" {
+		if estimate.Role == "formal_baseline" {
+			s.CreditsFormal = &copyEstimate
+		} else {
+			s.CreditsCurrent = &copyEstimate
+		}
+		return
+	}
+	if estimate.Role == "formal_baseline" {
+		s.APIFormal = &copyEstimate
+	} else {
+		s.APICurrent = &copyEstimate
+	}
+}
+
+func (s weeklyEstimateBaselineSet) forEstimate(estimate model.CodexWeeklyPoolEstimate) *model.CodexWeeklyPoolEstimate {
+	if estimate.Basis == "credits" {
+		if estimate.Role == "formal_baseline" {
+			return s.CreditsFormal
+		}
+		return s.CreditsCurrent
+	}
+	if estimate.Role == "formal_baseline" {
+		return s.APIFormal
+	}
+	return s.APICurrent
 }
 
 func (r *repository) ListDisableOwnership(ctx context.Context) ([]model.CodexInspectionDisableOwnership, error) {

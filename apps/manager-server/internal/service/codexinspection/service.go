@@ -1956,10 +1956,11 @@ func (s *Service) requestCodexCreditsUsage(
 	if weekly.ResetAtMS <= 0 || weekly.LimitWindowSeconds == nil {
 		return nil, nil
 	}
+	now := time.Now()
 	cycleStart := time.UnixMilli(weekly.ResetAtMS).Add(-time.Duration(*weekly.LimitWindowSeconds) * time.Second).In(time.Local)
 	cycleStartDate := cycleStart.Format(time.DateOnly)
 	previousCycleStartDate := cycleStart.Add(-time.Duration(*weekly.LimitWindowSeconds) * time.Second).Format(time.DateOnly)
-	endDate := time.Now().In(time.Local).AddDate(0, 0, 1).Format(time.DateOnly)
+	endDate := now.In(time.Local).AddDate(0, 0, 1).Format(time.DateOnly)
 	query := url.Values{}
 	query.Set("start_date", previousCycleStartDate)
 	query.Set("end_date", endDate)
@@ -1983,11 +1984,21 @@ func (s *Service) requestCodexCreditsUsage(
 		payload = parseRecord(response.BodyText)
 	}
 	rows, _ := payload["data"].([]any)
+	return summarizeCodexCreditsRows(rows, cycleStartDate, previousCycleStartDate, analyticsTimezoneAt(now), now.UnixMilli()), nil
+}
+
+func summarizeCodexCreditsRows(rows []any, cycleStartDate, previousCycleStartDate, timezone string, observedAtMS int64) *model.CodexCreditsUsage {
 	usage := &model.CodexCreditsUsage{
 		CycleStartDate:         cycleStartDate,
 		PreviousCycleStartDate: previousCycleStartDate,
-		ObservedAtMS:           time.Now().UnixMilli(),
+		AnalyticsTimezone:      timezone,
+		ObservedAtMS:           observedAtMS,
 	}
+	type dailyCredits struct {
+		date    string
+		credits float64
+	}
+	daily := make([]dailyCredits, 0, len(rows))
 	for _, raw := range rows {
 		row, ok := raw.(map[string]any)
 		if !ok {
@@ -2000,14 +2011,36 @@ func (s *Service) requestCodexCreditsUsage(
 		if date > usage.LatestDate {
 			usage.LatestDate = date
 		}
+		daily = append(daily, dailyCredits{
+			date:    date,
+			credits: readFloat(readMap(row, "totals")["credits"], 0),
+		})
+	}
+	if usage.LatestDate >= cycleStartDate {
+		usage.ClosedBoundaryDate = usage.LatestDate
+	}
+	for _, item := range daily {
 		switch {
-		case date >= cycleStartDate:
-			usage.CurrentCycleCredits += readFloat(readMap(row, "totals")["credits"], 0)
-		case date >= previousCycleStartDate:
-			usage.PreviousCycleCredits += readFloat(readMap(row, "totals")["credits"], 0)
+		case item.date >= cycleStartDate:
+			usage.CurrentCycleCredits += item.credits
+			if item.date < usage.LatestDate {
+				usage.ClosedCycleCredits += item.credits
+			}
+		case item.date >= previousCycleStartDate:
+			usage.PreviousCycleCredits += item.credits
 		}
 	}
-	return usage, nil
+	return usage
+}
+
+func analyticsTimezoneAt(value time.Time) string {
+	_, offsetSeconds := value.In(time.Local).Zone()
+	sign := '+'
+	if offsetSeconds < 0 {
+		sign = '-'
+		offsetSeconds = -offsetSeconds
+	}
+	return fmt.Sprintf("UTC%c%02d:%02d", sign, offsetSeconds/3600, (offsetSeconds%3600)/60)
 }
 
 func decodeCPAAPICallResponse(body io.Reader, maxBytes int64, target any) error {

@@ -960,8 +960,65 @@
   line-height: 1.35;
 }
 
+.weeklyEstimateMethods {
+  display: grid;
+  gap: 7px;
+}
+
+.weeklyEstimateMethodResult {
+  display: grid;
+  gap: 4px;
+  padding: 8px 9px;
+  border-left: 3px solid var(--inspect-line-strong);
+  border-radius: 6px;
+  background: var(--inspect-surface-muted);
+}
+
+.weeklyEstimateMethodResult[data-basis='api_equivalent_cost'] {
+  border-left-color: var(--inspect-accent);
+}
+
+.weeklyEstimateMethodResult[data-basis='credits'] {
+  border-left-color: var(--inspect-green);
+}
+
+.weeklyEstimateMethodHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+
+.weeklyEstimateBadges {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+
+.weeklyEstimateRole,
+.weeklyEstimateInterval {
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.weeklyEstimateRole {
+  background: color-mix(in srgb, var(--inspect-green) 11%, var(--inspect-surface));
+  color: var(--inspect-green);
+}
+
+.weeklyEstimateInterval {
+  background: color-mix(in srgb, var(--inspect-line-strong) 34%, var(--inspect-surface));
+  color: var(--inspect-muted);
+}
+
 .weeklyEstimateStatus {
-  flex: 0 0 auto;
+  min-width: 0;
   padding: 2px 6px;
   border-radius: 999px;
   font-size: 10px;
@@ -994,38 +1051,56 @@
   line-height: 1.1;
 }
 
-.weeklyEstimateHeuristic {
-  display: grid;
-  gap: 3px;
-  padding: 8px 9px;
-  border-left: 3px solid var(--inspect-accent);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--inspect-accent) 7%, var(--inspect-surface));
-}
-
-.weeklyEstimateHeuristic > span,
-.weeklyEstimateHeuristic > small {
+.weeklyEstimateValueRow {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
   color: var(--inspect-muted);
   font-size: 11px;
-  line-height: 1.4;
 }
 
-.weeklyEstimateHeuristic > strong {
+.weeklyEstimateRange {
+  width: fit-content;
+  max-width: 100%;
+  padding: 4px 7px;
+  border: 1px solid color-mix(in srgb, var(--inspect-green) 24%, var(--inspect-line));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--inspect-green) 6%, var(--inspect-surface));
   color: var(--inspect-ink);
   font-family: var(--font-family-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 17px;
-  line-height: 1.2;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .weeklyEstimateEquation,
 .weeklyEstimateReason,
 .weeklyEstimatePriceSource,
 .weeklyEstimateUpdateHint,
+.weeklyEstimateEvidence,
+.weeklyEstimateIntervalTime,
+.weeklyEstimateSyncState,
+.weeklyEstimateScopeState,
 .weeklyEstimateDisclaimer {
   color: var(--inspect-muted);
   font-size: 11px;
   line-height: 1.4;
   overflow-wrap: anywhere;
+}
+
+.weeklyEstimateSyncState {
+  width: fit-content;
+  padding: 3px 6px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--inspect-amber) 9%, var(--inspect-surface));
+  color: var(--inspect-amber);
+  font-weight: 700;
+}
+
+.weeklyEstimateScopeState {
+  color: var(--inspect-accent-strong);
+  font-weight: 650;
 }
 
 .weeklyEstimateMethod {

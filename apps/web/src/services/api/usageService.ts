@@ -336,17 +336,37 @@ export interface LocalCodexSessionResponse {
 export interface CodexWeeklyPoolEstimate {
   official: boolean;
   basis: string;
+  source?: string;
+  role?: string;
+  intervalKind?: string;
+  calculationVersion?: string;
   status: 'unavailable' | 'insufficient' | 'preliminary' | 'reliable';
   reason?: string;
   weeklyPoolUsd?: number | null;
+  weeklyPoolMinUsd?: number | null;
+  weeklyPoolMaxUsd?: number | null;
   costDeltaUsd?: number;
   usedPercentDelta?: number;
+  usedPercentMinDelta?: number;
+  usedPercentMaxDelta?: number;
   baselineAtMs?: number;
   currentAtMs?: number;
+  intervalStartMs?: number;
+  intervalEndMs?: number;
   weeklyResetAtMs?: number;
+  quotaKind?: string;
+  captureState?: string;
+  routeScope?: string;
+  quotaScope?: string;
+  quotaResolutionPp?: number;
+  analyticsTimezone?: string;
+  waitingForSync?: boolean;
   priceSources?: string[];
   priceSyncedAtMs?: number;
   priceUpdatedAtMs?: number;
+  credits?: number;
+  usdPerCredit?: number;
+  updatedAtMs?: number;
 }
 
 export interface CodexInspectionResult {
@@ -376,6 +396,7 @@ export interface CodexInspectionResult {
   planType?: string | null;
   quotaWindows?: CodexInspectionQuotaWindow[];
   weeklyPoolEstimate?: CodexWeeklyPoolEstimate | null;
+  weeklyPoolEstimates?: CodexWeeklyPoolEstimate[];
   quotaInventoryObserved?: boolean;
   errorKind?: string;
   errorDetail?: string;

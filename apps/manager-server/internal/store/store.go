@@ -403,6 +403,10 @@ func (s *Store) GetCodexWeeklyEstimateBaseline(ctx context.Context, authIndex, a
 	return s.CodexInspections.GetWeeklyEstimateBaseline(ctx, authIndex, accountID)
 }
 
+func (s *Store) ListCodexWeeklyEstimateBaselines(ctx context.Context, authIndex, accountID string) ([]CodexWeeklyPoolEstimate, error) {
+	return s.CodexInspections.ListWeeklyEstimateBaselines(ctx, authIndex, accountID)
+}
+
 func (s *Store) UpsertCodexWeeklyEstimateBaseline(ctx context.Context, authIndex, accountID string, estimate CodexWeeklyPoolEstimate) error {
 	return s.CodexInspections.UpsertWeeklyEstimateBaseline(ctx, authIndex, accountID, estimate)
 }

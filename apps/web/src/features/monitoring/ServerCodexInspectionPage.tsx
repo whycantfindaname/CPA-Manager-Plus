@@ -643,6 +643,10 @@ function toServerResultItem(
           weeklyPoolUsd: item.weeklyPoolEstimate.weeklyPoolUsd ?? null,
         }
       : null,
+    weeklyPoolEstimates: item.weeklyPoolEstimates?.map((estimate) => ({
+      ...estimate,
+      weeklyPoolUsd: estimate.weeklyPoolUsd ?? null,
+    })),
     quotaInventoryObserved: item.quotaInventoryObserved,
     errorKind: item.errorKind,
     errorDetail: item.errorDetail || '',

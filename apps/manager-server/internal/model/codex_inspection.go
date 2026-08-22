@@ -150,31 +150,50 @@ type CodexInspectionQuotaWindow struct {
 }
 
 type CodexWeeklyPoolEstimate struct {
-	Official         bool     `json:"official"`
-	Basis            string   `json:"basis"`
-	Source           string   `json:"source,omitempty"`
-	Status           string   `json:"status"`
-	Reason           string   `json:"reason,omitempty"`
-	WeeklyPoolUSD    *float64 `json:"weeklyPoolUsd,omitempty"`
-	CostDeltaUSD     float64  `json:"costDeltaUsd,omitempty"`
-	UsedPercentDelta float64  `json:"usedPercentDelta,omitempty"`
-	BaselineAtMS     int64    `json:"baselineAtMs,omitempty"`
-	CurrentAtMS      int64    `json:"currentAtMs,omitempty"`
-	WeeklyResetAtMS  int64    `json:"weeklyResetAtMs,omitempty"`
-	PriceSources     []string `json:"priceSources,omitempty"`
-	PriceSyncedAtMS  int64    `json:"priceSyncedAtMs,omitempty"`
-	PriceUpdatedAtMS int64    `json:"priceUpdatedAtMs,omitempty"`
-	Credits          float64  `json:"credits,omitempty"`
-	USDPerCredit     float64  `json:"usdPerCredit,omitempty"`
-	UpdatedAtMS      int64    `json:"updatedAtMs,omitempty"`
+	Official            bool     `json:"official"`
+	Basis               string   `json:"basis"`
+	Source              string   `json:"source,omitempty"`
+	Role                string   `json:"role,omitempty"`
+	IntervalKind        string   `json:"intervalKind,omitempty"`
+	CalculationVersion  string   `json:"calculationVersion,omitempty"`
+	Status              string   `json:"status"`
+	Reason              string   `json:"reason,omitempty"`
+	WeeklyPoolUSD       *float64 `json:"weeklyPoolUsd,omitempty"`
+	WeeklyPoolMinUSD    *float64 `json:"weeklyPoolMinUsd,omitempty"`
+	WeeklyPoolMaxUSD    *float64 `json:"weeklyPoolMaxUsd,omitempty"`
+	CostDeltaUSD        float64  `json:"costDeltaUsd,omitempty"`
+	UsedPercentDelta    float64  `json:"usedPercentDelta,omitempty"`
+	UsedPercentMinDelta float64  `json:"usedPercentMinDelta,omitempty"`
+	UsedPercentMaxDelta float64  `json:"usedPercentMaxDelta,omitempty"`
+	BaselineAtMS        int64    `json:"baselineAtMs,omitempty"`
+	CurrentAtMS         int64    `json:"currentAtMs,omitempty"`
+	IntervalStartMS     int64    `json:"intervalStartMs,omitempty"`
+	IntervalEndMS       int64    `json:"intervalEndMs,omitempty"`
+	WeeklyResetAtMS     int64    `json:"weeklyResetAtMs,omitempty"`
+	QuotaKind           string   `json:"quotaKind,omitempty"`
+	CaptureState        string   `json:"captureState,omitempty"`
+	RouteScope          string   `json:"routeScope,omitempty"`
+	QuotaScope          string   `json:"quotaScope,omitempty"`
+	QuotaResolutionPP   float64  `json:"quotaResolutionPp,omitempty"`
+	AnalyticsTimezone   string   `json:"analyticsTimezone,omitempty"`
+	WaitingForSync      bool     `json:"waitingForSync,omitempty"`
+	PriceSources        []string `json:"priceSources,omitempty"`
+	PriceSyncedAtMS     int64    `json:"priceSyncedAtMs,omitempty"`
+	PriceUpdatedAtMS    int64    `json:"priceUpdatedAtMs,omitempty"`
+	Credits             float64  `json:"credits,omitempty"`
+	USDPerCredit        float64  `json:"usdPerCredit,omitempty"`
+	UpdatedAtMS         int64    `json:"updatedAtMs,omitempty"`
 }
 
 type CodexCreditsUsage struct {
 	CurrentCycleCredits    float64 `json:"currentCycleCredits"`
+	ClosedCycleCredits     float64 `json:"closedCycleCredits,omitempty"`
+	ClosedBoundaryDate     string  `json:"closedBoundaryDate,omitempty"`
 	CycleStartDate         string  `json:"cycleStartDate"`
 	PreviousCycleCredits   float64 `json:"previousCycleCredits,omitempty"`
 	PreviousCycleStartDate string  `json:"previousCycleStartDate,omitempty"`
 	LatestDate             string  `json:"latestDate,omitempty"`
+	AnalyticsTimezone      string  `json:"analyticsTimezone,omitempty"`
 	ObservedAtMS           int64   `json:"observedAtMs"`
 }
 
@@ -204,6 +223,7 @@ type CodexInspectionResult struct {
 	PlanType               string                       `json:"planType,omitempty"`
 	QuotaWindows           []CodexInspectionQuotaWindow `json:"quotaWindows,omitempty"`
 	WeeklyPoolEstimate     *CodexWeeklyPoolEstimate     `json:"weeklyPoolEstimate,omitempty"`
+	WeeklyPoolEstimates    []CodexWeeklyPoolEstimate    `json:"weeklyPoolEstimates,omitempty"`
 	CreditsUsage           *CodexCreditsUsage           `json:"creditsUsage,omitempty"`
 	QuotaWindowsJSON       string                       `json:"-"`
 	CreditsUsageJSON       string                       `json:"-"`

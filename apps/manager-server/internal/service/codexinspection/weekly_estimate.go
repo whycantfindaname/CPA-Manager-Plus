@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +22,17 @@ const (
 	weeklyEstimateSourceCreditsLearned = "credits_learned"
 	weeklyEstimateUSDPerCredit         = 0.04
 	weeklyResetDriftTolerance          = time.Minute
+	creditsQuotaBoundaryTolerance      = 15 * time.Minute
+	cpaCaptureCloseDelay               = 2 * time.Minute
+	cpaQuotaResolutionPP               = 1.0
+	cpaCalculationVersion              = "cpa_matched_interval_v2"
+	creditsCalculationVersion          = "credits_closed_interval_v1"
+	weeklyEstimateRoleCurrent          = "current_estimate"
+	weeklyEstimateRoleFormal           = "formal_baseline"
+	weeklyEstimateIntervalPartial      = "partial_cycle"
+	weeklyEstimateIntervalComplete     = "cycle_complete"
+	weeklyEstimateIntervalApproximate  = "cycle_approximate"
+	weeklyEstimateQuotaKind            = "weekly"
 
 	weeklyEstimateStatusUnavailable  = "unavailable"
 	weeklyEstimateStatusInsufficient = "insufficient"
@@ -31,6 +43,7 @@ const (
 type pendingWeeklyEstimate struct {
 	resultIndex int
 	baseline    model.CodexInspectionResult
+	endpoint    model.CodexInspectionResult
 }
 
 func (s *Service) attachWeeklyPoolEstimates(ctx context.Context, results []model.CodexInspectionResult) {
@@ -45,15 +58,23 @@ func (s *Service) attachWeeklyPoolEstimates(ctx context.Context, results []model
 			continue
 		}
 		estimate := &model.CodexWeeklyPoolEstimate{
-			Official:        false,
-			Basis:           weeklyEstimateBasisAPIEquivalent,
-			Status:          weeklyEstimateStatusUnavailable,
-			CurrentAtMS:     current.CreatedAtMS,
-			WeeklyResetAtMS: weekly.ResetAtMS,
+			Official:           false,
+			Basis:              weeklyEstimateBasisAPIEquivalent,
+			Role:               weeklyEstimateRoleCurrent,
+			IntervalKind:       weeklyEstimateIntervalPartial,
+			CalculationVersion: cpaCalculationVersion,
+			Status:             weeklyEstimateStatusUnavailable,
+			CurrentAtMS:        current.CreatedAtMS,
+			WeeklyResetAtMS:    weekly.ResetAtMS,
+			QuotaKind:          weeklyEstimateQuotaKind,
+			CaptureState:       "pending",
+			RouteScope:         "observed",
+			QuotaScope:         cpaQuotaScope(current.QuotaWindows),
+			QuotaResolutionPP:  cpaQuotaResolutionPP,
 		}
 		current.WeeklyPoolEstimate = estimate
 
-		if strings.TrimSpace(current.AuthIndex) == "" || strings.TrimSpace(current.AccountID) == "" {
+		if strings.TrimSpace(current.AuthIndex) == "" || strings.TrimSpace(current.AccountID) == "" || strings.TrimSpace(current.AccountSnapshot) == "" {
 			estimate.Reason = "identity_missing"
 			continue
 		}
@@ -73,29 +94,36 @@ func (s *Service) attachWeeklyPoolEstimates(ctx context.Context, results []model
 			estimate.Reason = "history_unavailable"
 			continue
 		}
-		baseline, found, quotaDecreased := selectWeeklyBaseline(history, *weekly, *weekly.UsedPercent)
+		baseline, endpoint, found, reason := selectClosedCPAInterval(history, *current, *weekly)
 		if !found {
-			if quotaDecreased {
-				estimate.Reason = "quota_decreased"
-			} else {
-				estimate.Reason = "baseline_missing"
-			}
+			estimate.Reason = reason
 			continue
 		}
 		baselineWindow := standardWeeklyQuotaWindow(baseline.QuotaWindows)
-		if baselineWindow == nil || baselineWindow.UsedPercent == nil {
+		endpointWindow := standardWeeklyQuotaWindow(endpoint.QuotaWindows)
+		if baselineWindow == nil || baselineWindow.UsedPercent == nil || endpointWindow == nil || endpointWindow.UsedPercent == nil {
 			estimate.Reason = "baseline_missing"
 			continue
 		}
-		delta := *weekly.UsedPercent - *baselineWindow.UsedPercent
+		delta := *endpointWindow.UsedPercent - *baselineWindow.UsedPercent
+		startMin, startMax := quotaValueBounds(*baselineWindow.UsedPercent, cpaQuotaResolutionPP)
+		endMin, endMax := quotaValueBounds(*endpointWindow.UsedPercent, cpaQuotaResolutionPP)
+		minDelta := endMin - startMax
+		maxDelta := endMax - startMin
 		estimate.BaselineAtMS = baseline.CreatedAtMS
+		estimate.CurrentAtMS = endpoint.CreatedAtMS
+		estimate.IntervalStartMS = baseline.CreatedAtMS
+		estimate.IntervalEndMS = endpoint.CreatedAtMS
+		estimate.CaptureState = "closed"
 		estimate.UsedPercentDelta = delta
-		if weeklyEstimateStatus(delta) == weeklyEstimateStatusInsufficient {
+		estimate.UsedPercentMinDelta = minDelta
+		estimate.UsedPercentMaxDelta = maxDelta
+		if minDelta < 1 || delta <= 0 {
 			estimate.Status = weeklyEstimateStatusInsufficient
 			estimate.Reason = "delta_too_small"
 			continue
 		}
-		pending = append(pending, pendingWeeklyEstimate{resultIndex: index, baseline: baseline})
+		pending = append(pending, pendingWeeklyEstimate{resultIndex: index, baseline: baseline, endpoint: endpoint})
 	}
 
 	if len(pending) > 0 {
@@ -112,8 +140,9 @@ func (s *Service) attachWeeklyPoolEstimates(ctx context.Context, results []model
 				estimate := current.WeeklyPoolEstimate
 				stats, statsErr := s.store.ModelStatsWithFilter(ctx, store.AnalyticsFilter{
 					FromMS:        item.baseline.CreatedAtMS,
-					ToMS:          current.CreatedAtMS,
+					ToMS:          item.endpoint.CreatedAtMS,
 					Providers:     []string{model.CodexInspectionTargetCodex},
+					Accounts:      []string{current.AccountSnapshot},
 					AuthIndices:   []string{current.AuthIndex},
 					IncludeFailed: true,
 				}, 0)
@@ -132,74 +161,406 @@ func (s *Service) attachWeeklyPoolEstimates(ctx context.Context, results []model
 func (s *Service) adoptWeeklyEstimateBaselines(ctx context.Context, results []model.CodexInspectionResult) {
 	for index := range results {
 		current := &results[index]
-		estimate := current.WeeklyPoolEstimate
-		if estimate == nil {
+		apiCurrent := current.WeeklyPoolEstimate
+		if apiCurrent == nil {
 			continue
 		}
-		if estimate.WeeklyPoolUSD != nil {
-			estimate.Source = weeklyEstimateSourceCPACurrent
-			estimate.UpdatedAtMS = current.CreatedAtMS
-			_ = s.store.UpsertCodexWeeklyEstimateBaseline(ctx, current.AuthIndex, current.AccountID, *estimate)
-			continue
+		learned, err := s.store.ListCodexWeeklyEstimateBaselines(ctx, current.AuthIndex, current.AccountID)
+		if err != nil {
+			learned = nil
 		}
-		if creditsEstimate := s.creditsWeeklyEstimate(ctx, *current); creditsEstimate != nil {
-			current.WeeklyPoolEstimate = creditsEstimate
-			_ = s.store.UpsertCodexWeeklyEstimateBaseline(ctx, current.AuthIndex, current.AccountID, *creditsEstimate)
-			continue
+		weekly := standardWeeklyQuotaWindow(current.QuotaWindows)
+		if weekly != nil {
+			previousAPI := weeklyEstimateForBasisRole(learned, weeklyEstimateBasisAPIEquivalent, weeklyEstimateRoleCurrent)
+			existingFormal := weeklyEstimateForBasisRole(learned, weeklyEstimateBasisAPIEquivalent, weeklyEstimateRoleFormal)
+			alreadyPromoted := existingFormal != nil && previousAPI != nil && sameWeeklyResetWindow(existingFormal.WeeklyResetAtMS, previousAPI.WeeklyResetAtMS)
+			if cpaEstimateFormalEligible(previousAPI) && !alreadyPromoted && !sameWeeklyResetWindow(previousAPI.WeeklyResetAtMS, weekly.ResetAtMS) {
+				promoted := *previousAPI
+				promoted.Source = weeklyEstimateSourceCPALearned
+				promoted.Role = weeklyEstimateRoleFormal
+				promoted.IntervalKind = weeklyEstimateIntervalApproximate
+				promoted.WaitingForSync = false
+				_ = s.store.UpsertCodexWeeklyEstimateBaseline(ctx, current.AuthIndex, current.AccountID, promoted)
+			}
 		}
-		learned, found, err := s.store.GetCodexWeeklyEstimateBaseline(ctx, current.AuthIndex, current.AccountID)
-		if err != nil || !found || learned.WeeklyPoolUSD == nil {
-			continue
+		if apiCurrent.WeeklyPoolUSD != nil {
+			apiCurrent.Source = weeklyEstimateSourceCPACurrent
+			apiCurrent.UpdatedAtMS = current.CreatedAtMS
+			_ = s.store.UpsertCodexWeeklyEstimateBaseline(ctx, current.AuthIndex, current.AccountID, *apiCurrent)
 		}
-		switch learned.Source {
-		case weeklyEstimateSourceCPACurrent, weeklyEstimateSourceCPALearned:
-			learned.Source = weeklyEstimateSourceCPALearned
-		case weeklyEstimateSourceCreditsCurrent, weeklyEstimateSourceCreditsLearned:
-			learned.Source = weeklyEstimateSourceCreditsLearned
+
+		learned, err = s.store.ListCodexWeeklyEstimateBaselines(ctx, current.AuthIndex, current.AccountID)
+		if err != nil {
+			learned = nil
 		}
-		current.WeeklyPoolEstimate = &learned
+		if weekly != nil {
+			previousCurrent := weeklyEstimateForBasisRole(learned, weeklyEstimateBasisCredits, weeklyEstimateRoleCurrent)
+			if creditsEstimateCompatible(previousCurrent) && !sameWeeklyResetWindow(previousCurrent.WeeklyResetAtMS, weekly.ResetAtMS) {
+				promoted := *previousCurrent
+				promoted.Source = weeklyEstimateSourceCreditsLearned
+				promoted.Role = weeklyEstimateRoleFormal
+				if promoted.IntervalKind != weeklyEstimateIntervalComplete {
+					promoted.IntervalKind = weeklyEstimateIntervalApproximate
+				}
+				promoted.WaitingForSync = false
+				promoted.UpdatedAtMS = current.CreatedAtMS
+				_ = s.store.UpsertCodexWeeklyEstimateBaseline(ctx, current.AuthIndex, current.AccountID, promoted)
+			}
+		}
+
+		creditsFormal := s.previousCycleCompleteCreditsEstimate(ctx, *current)
+		if creditsFormal != nil && creditsFormal.WeeklyPoolUSD != nil {
+			_ = s.store.UpsertCodexWeeklyEstimateBaseline(ctx, current.AuthIndex, current.AccountID, *creditsFormal)
+		}
+		creditsCurrent := s.currentCreditsWeeklyEstimate(ctx, *current)
+		if creditsCurrent != nil && creditsCurrent.WeeklyPoolUSD != nil {
+			_ = s.store.UpsertCodexWeeklyEstimateBaseline(ctx, current.AuthIndex, current.AccountID, *creditsCurrent)
+		}
+
+		learned, err = s.store.ListCodexWeeklyEstimateBaselines(ctx, current.AuthIndex, current.AccountID)
+		if err != nil {
+			learned = nil
+		}
+		apiCurrentDisplay := apiCurrent
+		if apiCurrentDisplay.WeeklyPoolUSD == nil && weekly != nil {
+			baseline := weeklyEstimateForBasisRole(learned, weeklyEstimateBasisAPIEquivalent, weeklyEstimateRoleCurrent)
+			if cpaEstimateCompatible(baseline) && sameWeeklyResetWindow(baseline.WeeklyResetAtMS, weekly.ResetAtMS) {
+				apiCurrentDisplay = learnedWeeklyEstimate(*baseline, true)
+			}
+		}
+		apiFormalDisplay := weeklyEstimateForBasisRole(learned, weeklyEstimateBasisAPIEquivalent, weeklyEstimateRoleFormal)
+		if !cpaEstimateCompatible(apiFormalDisplay) {
+			apiFormalDisplay = nil
+		}
+		creditsFormalDisplay := creditsFormal
+		if creditsFormalDisplay == nil {
+			baseline := weeklyEstimateForBasisRole(learned, weeklyEstimateBasisCredits, weeklyEstimateRoleFormal)
+			if creditsEstimateCompatible(baseline) {
+				creditsFormalDisplay = learnedWeeklyEstimate(*baseline, false)
+			}
+		}
+		creditsCurrentDisplay := creditsCurrent
+		if creditsCurrentDisplay == nil && weekly != nil {
+			baseline := weeklyEstimateForBasisRole(learned, weeklyEstimateBasisCredits, weeklyEstimateRoleCurrent)
+			if creditsEstimateCompatible(baseline) && sameWeeklyResetWindow(baseline.WeeklyResetAtMS, weekly.ResetAtMS) {
+				creditsCurrentDisplay = learnedWeeklyEstimate(*baseline, true)
+			}
+		}
+
+		current.WeeklyPoolEstimates = make([]model.CodexWeeklyPoolEstimate, 0, 4)
+		if apiFormalDisplay != nil {
+			current.WeeklyPoolEstimates = append(current.WeeklyPoolEstimates, *apiFormalDisplay)
+		}
+		if apiCurrentDisplay != nil {
+			current.WeeklyPoolEstimates = append(current.WeeklyPoolEstimates, *apiCurrentDisplay)
+		}
+		if creditsFormalDisplay != nil {
+			current.WeeklyPoolEstimates = append(current.WeeklyPoolEstimates, *creditsFormalDisplay)
+		}
+		if creditsCurrentDisplay != nil {
+			current.WeeklyPoolEstimates = append(current.WeeklyPoolEstimates, *creditsCurrentDisplay)
+		}
+
+		switch {
+		case apiCurrentDisplay != nil && apiCurrentDisplay.WeeklyPoolUSD != nil:
+			current.WeeklyPoolEstimate = apiCurrentDisplay
+		case creditsCurrent != nil && creditsCurrent.WeeklyPoolUSD != nil:
+			current.WeeklyPoolEstimate = creditsCurrentDisplay
+		case apiFormalDisplay != nil && apiFormalDisplay.WeeklyPoolUSD != nil:
+			current.WeeklyPoolEstimate = apiFormalDisplay
+		case creditsFormalDisplay != nil && creditsFormalDisplay.WeeklyPoolUSD != nil:
+			current.WeeklyPoolEstimate = creditsFormalDisplay
+		case creditsCurrentDisplay != nil && creditsCurrentDisplay.WeeklyPoolUSD != nil:
+			current.WeeklyPoolEstimate = creditsCurrentDisplay
+		default:
+			current.WeeklyPoolEstimate = apiCurrentDisplay
+		}
 	}
 }
 
-func (s *Service) creditsWeeklyEstimate(ctx context.Context, result model.CodexInspectionResult) *model.CodexWeeklyPoolEstimate {
+func weeklyEstimateForBasis(estimates []model.CodexWeeklyPoolEstimate, basis string) *model.CodexWeeklyPoolEstimate {
+	for index := range estimates {
+		if estimates[index].Basis == basis && estimates[index].WeeklyPoolUSD != nil {
+			return &estimates[index]
+		}
+	}
+	return nil
+}
+
+func weeklyEstimateForBasisRole(estimates []model.CodexWeeklyPoolEstimate, basis, role string) *model.CodexWeeklyPoolEstimate {
+	for index := range estimates {
+		if estimates[index].Basis == basis && estimates[index].Role == role && estimates[index].WeeklyPoolUSD != nil {
+			return &estimates[index]
+		}
+	}
+	return nil
+}
+
+func creditsEstimateCompatible(estimate *model.CodexWeeklyPoolEstimate) bool {
+	return estimate != nil && estimate.CalculationVersion == creditsCalculationVersion
+}
+
+func learnedWeeklyEstimate(estimate model.CodexWeeklyPoolEstimate, waitingForSync bool) *model.CodexWeeklyPoolEstimate {
+	switch estimate.Basis {
+	case weeklyEstimateBasisCredits:
+		estimate.Source = weeklyEstimateSourceCreditsLearned
+	default:
+		estimate.Source = weeklyEstimateSourceCPALearned
+	}
+	estimate.WaitingForSync = waitingForSync
+	return &estimate
+}
+
+func (s *Service) previousCycleCompleteCreditsEstimate(ctx context.Context, result model.CodexInspectionResult) *model.CodexWeeklyPoolEstimate {
 	weekly := standardWeeklyQuotaWindow(result.QuotaWindows)
 	usage := result.CreditsUsage
-	if weekly == nil || weekly.UsedPercent == nil || weekly.ResetAtMS <= 0 || usage == nil {
+	if weekly == nil || weekly.ResetAtMS <= 0 || usage == nil || usage.PreviousCycleCredits <= 0 || usage.PreviousCycleStartDate == "" || usage.CycleStartDate == "" || usage.AnalyticsTimezone == "" {
 		return nil
 	}
-	credits := usage.CurrentCycleCredits
-	usedPercent := *weekly.UsedPercent
-	source := weeklyEstimateSourceCreditsCurrent
-	baselineAtMS := int64(0)
-	resetAtMS := weekly.ResetAtMS
-	if credits <= 0 || usedPercent < 1 || usage.CycleStartDate == "" || usage.LatestDate < usage.CycleStartDate {
-		previous, found := s.previousWeeklySample(ctx, result, weekly.ResetAtMS-int64(codexWeekWindow)*1000)
-		previousWindow := standardWeeklyQuotaWindow(previous.QuotaWindows)
-		if !found || previousWindow == nil || previousWindow.UsedPercent == nil || *previousWindow.UsedPercent < 1 || usage.PreviousCycleCredits <= 0 {
-			return nil
-		}
-		credits = usage.PreviousCycleCredits
-		usedPercent = *previousWindow.UsedPercent
-		source = weeklyEstimateSourceCreditsLearned
-		baselineAtMS = previous.CreatedAtMS
-		resetAtMS = previousWindow.ResetAtMS
+	previousResetAtMS := weekly.ResetAtMS - int64(codexWeekWindow)*1000
+	startBoundaryMS, ok := creditsBoundaryMS(usage.PreviousCycleStartDate, usage.AnalyticsTimezone)
+	if !ok {
+		return nil
 	}
-	value := credits / (usedPercent / 100) * weeklyEstimateUSDPerCredit
+	endBoundaryMS, ok := creditsBoundaryMS(usage.CycleStartDate, usage.AnalyticsTimezone)
+	if !ok || endBoundaryMS != previousResetAtMS || startBoundaryMS != previousResetAtMS-int64(codexWeekWindow)*1000 {
+		return nil
+	}
+	previous, found := s.previousWeeklySample(ctx, result, previousResetAtMS)
+	previousWindow := standardWeeklyQuotaWindow(previous.QuotaWindows)
+	if !found || previousWindow == nil || previousWindow.UsedPercent == nil || *previousWindow.UsedPercent < 5 {
+		return nil
+	}
+	credits := usage.PreviousCycleCredits
+	usedPercent := math.Min(100, *previousWindow.UsedPercent)
+	cost := credits * weeklyEstimateUSDPerCredit
+	value := cost / (usedPercent / 100)
+	minValue := cost
+	maxValue := value
 	return &model.CodexWeeklyPoolEstimate{
-		Official:         false,
-		Basis:            weeklyEstimateBasisCredits,
-		Source:           source,
-		Status:           weeklyEstimateStatusPreliminary,
-		WeeklyPoolUSD:    &value,
-		CostDeltaUSD:     credits * weeklyEstimateUSDPerCredit,
-		UsedPercentDelta: usedPercent,
-		BaselineAtMS:     baselineAtMS,
-		CurrentAtMS:      result.CreatedAtMS,
-		WeeklyResetAtMS:  resetAtMS,
-		Credits:          credits,
-		USDPerCredit:     weeklyEstimateUSDPerCredit,
-		UpdatedAtMS:      usage.ObservedAtMS,
+		Official:            false,
+		Basis:               weeklyEstimateBasisCredits,
+		Source:              weeklyEstimateSourceCreditsCurrent,
+		Role:                weeklyEstimateRoleFormal,
+		IntervalKind:        weeklyEstimateIntervalComplete,
+		CalculationVersion:  creditsCalculationVersion,
+		Status:              creditsEstimateStatus(value, minValue, maxValue, usedPercent),
+		WeeklyPoolUSD:       &value,
+		WeeklyPoolMinUSD:    &minValue,
+		WeeklyPoolMaxUSD:    &maxValue,
+		CostDeltaUSD:        cost,
+		UsedPercentDelta:    usedPercent,
+		UsedPercentMinDelta: usedPercent,
+		UsedPercentMaxDelta: 100,
+		BaselineAtMS:        previous.CreatedAtMS,
+		CurrentAtMS:         previous.CreatedAtMS,
+		IntervalStartMS:     startBoundaryMS,
+		IntervalEndMS:       endBoundaryMS,
+		WeeklyResetAtMS:     previousResetAtMS,
+		QuotaKind:           weeklyEstimateQuotaKind,
+		AnalyticsTimezone:   usage.AnalyticsTimezone,
+		Credits:             credits,
+		USDPerCredit:        weeklyEstimateUSDPerCredit,
+		UpdatedAtMS:         usage.ObservedAtMS,
 	}
+}
+
+func (s *Service) currentCreditsWeeklyEstimate(ctx context.Context, result model.CodexInspectionResult) *model.CodexWeeklyPoolEstimate {
+	weekly := standardWeeklyQuotaWindow(result.QuotaWindows)
+	usage := result.CreditsUsage
+	if weekly == nil || weekly.ResetAtMS <= 0 || usage == nil || usage.CycleStartDate == "" || usage.ClosedBoundaryDate == "" || usage.AnalyticsTimezone == "" {
+		return nil
+	}
+	fromMS := weekly.ResetAtMS - int64(codexWeekWindow)*1000
+	history, err := s.store.ListCodexInspectionResultsByIdentity(ctx, result.AuthIndex, result.AccountID, fromMS, result.CreatedAtMS)
+	if err != nil {
+		return nil
+	}
+	history = append(history, result)
+	boundaries := closedCreditsBoundarySamples(history, usage.CycleStartDate, usage.AnalyticsTimezone)
+	if len(boundaries) < 2 {
+		return nil
+	}
+	cycleStartMS := weekly.ResetAtMS - int64(codexWeekWindow)*1000
+	var selected *model.CodexWeeklyPoolEstimate
+	for startIndex := 0; startIndex < len(boundaries)-1; startIndex++ {
+		startEnvelope, ok := quotaEnvelopeAtBoundary(history, weekly.ResetAtMS, boundaries[startIndex].boundaryMS, cycleStartMS)
+		if !ok {
+			continue
+		}
+		for endIndex := startIndex + 1; endIndex < len(boundaries); endIndex++ {
+			endEnvelope, ok := quotaEnvelopeAtBoundary(history, weekly.ResetAtMS, boundaries[endIndex].boundaryMS, cycleStartMS)
+			if !ok {
+				continue
+			}
+			candidate := closedIntervalCreditsEstimate(boundaries[startIndex], boundaries[endIndex], startEnvelope, endEnvelope, *weekly)
+			if candidate == nil {
+				continue
+			}
+			if selected == nil || candidate.IntervalEndMS-candidate.IntervalStartMS > selected.IntervalEndMS-selected.IntervalStartMS {
+				selected = candidate
+			}
+		}
+	}
+	return selected
+}
+
+type creditsBoundarySample struct {
+	credits      float64
+	boundaryMS   int64
+	observedAtMS int64
+	timezone     string
+}
+
+func closedCreditsBoundarySamples(history []model.CodexInspectionResult, cycleStartDate, timezone string) []creditsBoundarySample {
+	byBoundary := map[int64]creditsBoundarySample{}
+	for _, candidate := range history {
+		usage := candidate.CreditsUsage
+		if usage == nil || usage.CycleStartDate != cycleStartDate || usage.AnalyticsTimezone != timezone || usage.ClosedBoundaryDate == "" {
+			continue
+		}
+		boundaryMS, ok := creditsBoundaryMS(usage.ClosedBoundaryDate, timezone)
+		if !ok {
+			continue
+		}
+		sample := creditsBoundarySample{credits: usage.ClosedCycleCredits, boundaryMS: boundaryMS, observedAtMS: usage.ObservedAtMS, timezone: timezone}
+		existing, found := byBoundary[boundaryMS]
+		if !found || sample.observedAtMS < existing.observedAtMS {
+			byBoundary[boundaryMS] = sample
+		}
+	}
+	result := make([]creditsBoundarySample, 0, len(byBoundary))
+	for _, sample := range byBoundary {
+		result = append(result, sample)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].boundaryMS < result[j].boundaryMS })
+	return result
+}
+
+func creditsBoundaryMS(dateValue, timezone string) (int64, bool) {
+	location, ok := analyticsLocation(timezone)
+	if !ok {
+		return 0, false
+	}
+	parsed, err := time.ParseInLocation(time.DateOnly, dateValue, location)
+	if err != nil {
+		return 0, false
+	}
+	return parsed.UnixMilli(), true
+}
+
+func analyticsLocation(value string) (*time.Location, bool) {
+	if strings.HasPrefix(value, "UTC") && len(value) == len("UTC+00:00") {
+		sign := 1
+		if value[3] == '-' {
+			sign = -1
+		} else if value[3] != '+' {
+			return nil, false
+		}
+		hours, hourErr := strconv.Atoi(value[4:6])
+		minutes, minuteErr := strconv.Atoi(value[7:9])
+		if hourErr != nil || minuteErr != nil || value[6] != ':' || hours > 23 || minutes > 59 {
+			return nil, false
+		}
+		return time.FixedZone(value, sign*(hours*60+minutes)*60), true
+	}
+	location, err := time.LoadLocation(value)
+	return location, err == nil
+}
+
+type quotaBoundaryEnvelope struct {
+	beforeUsed float64
+	afterUsed  float64
+	beforeAtMS int64
+	afterAtMS  int64
+}
+
+func quotaEnvelopeAtBoundary(history []model.CodexInspectionResult, resetAtMS, boundaryMS, cycleStartMS int64) (quotaBoundaryEnvelope, bool) {
+	if boundaryMS == cycleStartMS {
+		return quotaBoundaryEnvelope{beforeAtMS: boundaryMS, afterAtMS: boundaryMS}, true
+	}
+	var envelope quotaBoundaryEnvelope
+	foundBefore := false
+	foundAfter := false
+	for _, candidate := range history {
+		window := standardWeeklyQuotaWindow(candidate.QuotaWindows)
+		if window == nil || window.UsedPercent == nil || !sameWeeklyResetWindow(window.ResetAtMS, resetAtMS) {
+			continue
+		}
+		if candidate.CreatedAtMS <= boundaryMS && (!foundBefore || candidate.CreatedAtMS > envelope.beforeAtMS) {
+			envelope.beforeUsed = *window.UsedPercent
+			envelope.beforeAtMS = candidate.CreatedAtMS
+			foundBefore = true
+		}
+		if candidate.CreatedAtMS >= boundaryMS && (!foundAfter || candidate.CreatedAtMS < envelope.afterAtMS) {
+			envelope.afterUsed = *window.UsedPercent
+			envelope.afterAtMS = candidate.CreatedAtMS
+			foundAfter = true
+		}
+	}
+	toleranceMS := int64(creditsQuotaBoundaryTolerance / time.Millisecond)
+	if !foundBefore || !foundAfter || boundaryMS-envelope.beforeAtMS > toleranceMS || envelope.afterAtMS-boundaryMS > toleranceMS {
+		return quotaBoundaryEnvelope{}, false
+	}
+	return envelope, true
+}
+
+func closedIntervalCreditsEstimate(start, end creditsBoundarySample, startQuota, endQuota quotaBoundaryEnvelope, weekly model.CodexInspectionQuotaWindow) *model.CodexWeeklyPoolEstimate {
+	creditsDelta := end.credits - start.credits
+	pointDelta := endQuota.beforeUsed - startQuota.beforeUsed
+	minDelta := endQuota.beforeUsed - startQuota.afterUsed
+	maxDelta := endQuota.afterUsed - startQuota.beforeUsed
+	if creditsDelta <= 0 || pointDelta < 5 || minDelta <= 0 || maxDelta < pointDelta || minDelta > pointDelta {
+		return nil
+	}
+	cost := creditsDelta * weeklyEstimateUSDPerCredit
+	value := cost / (pointDelta / 100)
+	minValue := cost / (maxDelta / 100)
+	maxValue := cost / (minDelta / 100)
+	cycleStartMS := weekly.ResetAtMS - int64(codexWeekWindow)*1000
+	intervalKind := weeklyEstimateIntervalPartial
+	role := weeklyEstimateRoleCurrent
+	if start.boundaryMS == cycleStartMS && end.boundaryMS == weekly.ResetAtMS {
+		intervalKind = weeklyEstimateIntervalComplete
+		role = weeklyEstimateRoleFormal
+	}
+	return &model.CodexWeeklyPoolEstimate{
+		Official:            false,
+		Basis:               weeklyEstimateBasisCredits,
+		Source:              weeklyEstimateSourceCreditsCurrent,
+		Role:                role,
+		IntervalKind:        intervalKind,
+		CalculationVersion:  creditsCalculationVersion,
+		Status:              creditsEstimateStatus(value, minValue, maxValue, pointDelta),
+		WeeklyPoolUSD:       &value,
+		WeeklyPoolMinUSD:    &minValue,
+		WeeklyPoolMaxUSD:    &maxValue,
+		CostDeltaUSD:        cost,
+		UsedPercentDelta:    pointDelta,
+		UsedPercentMinDelta: minDelta,
+		UsedPercentMaxDelta: maxDelta,
+		BaselineAtMS:        startQuota.beforeAtMS,
+		CurrentAtMS:         endQuota.beforeAtMS,
+		IntervalStartMS:     start.boundaryMS,
+		IntervalEndMS:       end.boundaryMS,
+		WeeklyResetAtMS:     weekly.ResetAtMS,
+		QuotaKind:           weeklyEstimateQuotaKind,
+		AnalyticsTimezone:   end.timezone,
+		Credits:             creditsDelta,
+		USDPerCredit:        weeklyEstimateUSDPerCredit,
+		UpdatedAtMS:         end.observedAtMS,
+	}
+}
+
+func creditsEstimateStatus(value, minValue, maxValue, pointDelta float64) string {
+	if pointDelta < 5 || value <= 0 || minValue <= 0 || maxValue < minValue {
+		return weeklyEstimateStatusInsufficient
+	}
+	relativeHalfWidth := (maxValue - minValue) / (2 * value)
+	if pointDelta >= 20 && relativeHalfWidth <= 0.10 {
+		return weeklyEstimateStatusReliable
+	}
+	return weeklyEstimateStatusPreliminary
 }
 
 func (s *Service) previousWeeklySample(ctx context.Context, result model.CodexInspectionResult, previousResetAtMS int64) (model.CodexInspectionResult, bool) {
@@ -208,9 +569,8 @@ func (s *Service) previousWeeklySample(ctx context.Context, result model.CodexIn
 	if err != nil {
 		return model.CodexInspectionResult{}, false
 	}
-	const adjacentResetTolerance = 15 * time.Minute
 	var selected model.CodexInspectionResult
-	selectedUsed := -1.0
+	found := false
 	for _, candidate := range history {
 		window := standardWeeklyQuotaWindow(candidate.QuotaWindows)
 		if window == nil || window.UsedPercent == nil {
@@ -220,13 +580,14 @@ func (s *Service) previousWeeklySample(ctx context.Context, result model.CodexIn
 		if drift < 0 {
 			drift = -drift
 		}
-		if drift > adjacentResetTolerance || *window.UsedPercent < selectedUsed {
+		age := previousResetAtMS - candidate.CreatedAtMS
+		if drift > weeklyResetDriftTolerance || age < 0 || age > int64(creditsQuotaBoundaryTolerance/time.Millisecond) || (found && candidate.CreatedAtMS <= selected.CreatedAtMS) {
 			continue
 		}
 		selected = candidate
-		selectedUsed = *window.UsedPercent
+		found = true
 	}
-	return selected, selectedUsed >= 0
+	return selected, found
 }
 
 func standardWeeklyQuotaWindow(windows []model.CodexInspectionQuotaWindow) *model.CodexInspectionQuotaWindow {
@@ -245,7 +606,7 @@ func standardWeeklyQuotaWindow(windows []model.CodexInspectionQuotaWindow) *mode
 
 func selectWeeklyBaseline(history []model.CodexInspectionResult, currentWindow model.CodexInspectionQuotaWindow, currentUsedPercent float64) (model.CodexInspectionResult, bool, bool) {
 	var selected model.CodexInspectionResult
-	selectedUsedPercent := math.Inf(1)
+	selectedUsedPercent := math.Inf(-1)
 	found := false
 	quotaDecreased := false
 	for _, candidate := range history {
@@ -257,14 +618,98 @@ func selectWeeklyBaseline(history []model.CodexInspectionResult, currentWindow m
 			quotaDecreased = true
 			continue
 		}
-		if !found || *window.UsedPercent < selectedUsedPercent ||
-			(*window.UsedPercent == selectedUsedPercent && candidate.CreatedAtMS < selected.CreatedAtMS) {
+		if *window.UsedPercent >= currentUsedPercent {
+			continue
+		}
+		if !found || *window.UsedPercent > selectedUsedPercent ||
+			(*window.UsedPercent == selectedUsedPercent && candidate.CreatedAtMS > selected.CreatedAtMS) {
 			selected = candidate
 			selectedUsedPercent = *window.UsedPercent
 			found = true
 		}
 	}
 	return selected, found, quotaDecreased
+}
+
+func selectClosedCPAInterval(history []model.CodexInspectionResult, current model.CodexInspectionResult, currentWindow model.CodexInspectionQuotaWindow) (model.CodexInspectionResult, model.CodexInspectionResult, bool, string) {
+	cutoffMS := current.CreatedAtMS - int64(cpaCaptureCloseDelay/time.Millisecond)
+	var endpoint model.CodexInspectionResult
+	endpointFound := false
+	identityChanged := false
+	newerEndpointPending := false
+	for _, candidate := range history {
+		window := standardWeeklyQuotaWindow(candidate.QuotaWindows)
+		if window == nil || window.UsedPercent == nil || !sameWeeklyResetWindow(window.ResetAtMS, currentWindow.ResetAtMS) {
+			continue
+		}
+		if !sameCPAIdentitySnapshot(candidate, current) {
+			identityChanged = true
+			continue
+		}
+		if candidate.CreatedAtMS > cutoffMS {
+			newerEndpointPending = true
+			continue
+		}
+		if !endpointFound || candidate.CreatedAtMS > endpoint.CreatedAtMS {
+			endpoint = candidate
+			endpointFound = true
+		}
+	}
+	if !endpointFound {
+		if identityChanged {
+			return model.CodexInspectionResult{}, model.CodexInspectionResult{}, false, "identity_changed"
+		}
+		return model.CodexInspectionResult{}, model.CodexInspectionResult{}, false, "capture_pending"
+	}
+	endpointWindow := standardWeeklyQuotaWindow(endpoint.QuotaWindows)
+	if endpointWindow == nil || endpointWindow.UsedPercent == nil {
+		return model.CodexInspectionResult{}, model.CodexInspectionResult{}, false, "weekly_sample_incomplete"
+	}
+	if currentWindow.UsedPercent != nil && *currentWindow.UsedPercent < *endpointWindow.UsedPercent {
+		return model.CodexInspectionResult{}, model.CodexInspectionResult{}, false, "quota_decreased"
+	}
+	prior := make([]model.CodexInspectionResult, 0, len(history))
+	for _, candidate := range history {
+		if candidate.CreatedAtMS >= endpoint.CreatedAtMS || !sameCPAIdentitySnapshot(candidate, endpoint) {
+			continue
+		}
+		prior = append(prior, candidate)
+	}
+	baseline, found, quotaDecreased := selectWeeklyBaseline(prior, *endpointWindow, *endpointWindow.UsedPercent)
+	if !found {
+		if quotaDecreased {
+			return model.CodexInspectionResult{}, model.CodexInspectionResult{}, false, "quota_decreased"
+		}
+		if newerEndpointPending {
+			return model.CodexInspectionResult{}, model.CodexInspectionResult{}, false, "capture_pending"
+		}
+		return model.CodexInspectionResult{}, model.CodexInspectionResult{}, false, "baseline_missing"
+	}
+	return baseline, endpoint, true, ""
+}
+
+func sameCPAIdentitySnapshot(left, right model.CodexInspectionResult) bool {
+	leftSnapshot := strings.TrimSpace(left.AccountSnapshot)
+	rightSnapshot := strings.TrimSpace(right.AccountSnapshot)
+	return leftSnapshot == "" || rightSnapshot == "" || strings.EqualFold(leftSnapshot, rightSnapshot)
+}
+
+func quotaValueBounds(value, resolution float64) (float64, float64) {
+	half := resolution / 2
+	return math.Max(0, value-half), math.Min(100, value+half)
+}
+
+func cpaQuotaScope(windows []model.CodexInspectionQuotaWindow) string {
+	weeklyWindows := 0
+	for _, window := range windows {
+		if window.LimitWindowSeconds != nil && int(math.Round(*window.LimitWindowSeconds)) == codexWeekWindow {
+			weeklyWindows++
+		}
+	}
+	if weeklyWindows > 1 {
+		return "mixed"
+	}
+	return "matched"
 }
 
 func sameWeeklyResetWindow(leftMS, rightMS int64) bool {
@@ -287,6 +732,27 @@ func weeklyEstimateStatus(delta float64) string {
 	default:
 		return weeklyEstimateStatusReliable
 	}
+}
+
+func cpaEstimateCompatible(estimate *model.CodexWeeklyPoolEstimate) bool {
+	return estimate != nil && estimate.CalculationVersion == cpaCalculationVersion &&
+		estimate.CaptureState == "closed" &&
+		estimate.WeeklyPoolUSD != nil && estimate.WeeklyPoolMinUSD != nil && estimate.WeeklyPoolMaxUSD != nil
+}
+
+func cpaEstimateFormalEligible(estimate *model.CodexWeeklyPoolEstimate) bool {
+	return cpaEstimateCompatible(estimate) && estimate.Status == weeklyEstimateStatusReliable
+}
+
+func cpaEstimateStatus(minValue, maxValue float64) string {
+	if minValue <= 0 || maxValue < minValue {
+		return weeklyEstimateStatusInsufficient
+	}
+	relativeHalfWidth := (maxValue - minValue) / (maxValue + minValue)
+	if relativeHalfWidth <= 0.10+1e-12 {
+		return weeklyEstimateStatusReliable
+	}
+	return weeklyEstimateStatusPreliminary
 }
 
 func applyWeeklyEstimateCost(estimate *model.CodexWeeklyPoolEstimate, stats []store.ModelStat, prices map[string]store.ModelPrice) {
@@ -351,9 +817,18 @@ func applyWeeklyEstimateCost(estimate *model.CodexWeeklyPoolEstimate, stats []st
 		return
 	}
 	value := totalCost / (estimate.UsedPercentDelta / 100)
+	if estimate.UsedPercentMinDelta <= 0 || estimate.UsedPercentMaxDelta <= 0 {
+		estimate.Status = weeklyEstimateStatusInsufficient
+		estimate.Reason = "delta_too_small"
+		return
+	}
+	minValue := totalCost / (estimate.UsedPercentMaxDelta / 100)
+	maxValue := totalCost / (estimate.UsedPercentMinDelta / 100)
 	estimate.WeeklyPoolUSD = &value
+	estimate.WeeklyPoolMinUSD = &minValue
+	estimate.WeeklyPoolMaxUSD = &maxValue
 	estimate.CostDeltaUSD = totalCost
-	estimate.Status = weeklyEstimateStatus(estimate.UsedPercentDelta)
+	estimate.Status = cpaEstimateStatus(minValue, maxValue)
 	estimate.Reason = ""
 	estimate.PriceSources = make([]string, 0, len(sources))
 	for source := range sources {

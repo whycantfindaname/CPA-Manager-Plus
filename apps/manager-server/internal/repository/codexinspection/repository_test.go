@@ -11,6 +11,81 @@ import (
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/sqlite"
 )
 
+func TestWeeklyEstimateBaselinesPreserveBothMethodsAndLegacyData(t *testing.T) {
+	db, err := sqlite.Open(filepath.Join(t.TempDir(), "usage.sqlite"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	repository := New(db)
+	ctx := context.Background()
+
+	apiValue := 1_900.0
+	legacy := model.CodexWeeklyPoolEstimate{
+		Basis:         "api_equivalent_cost",
+		Source:        "cpa_current",
+		Status:        "reliable",
+		WeeklyPoolUSD: &apiValue,
+		UpdatedAtMS:   100,
+	}
+	raw, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatalf("marshal legacy estimate: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `insert into codex_weekly_estimate_baselines(auth_index, account_id, estimate_json, updated_at_ms) values (?, ?, ?, ?)`, "auth-a", "account-a", string(raw), 100); err != nil {
+		t.Fatalf("insert legacy estimate: %v", err)
+	}
+
+	creditsValue := 2_050.0
+	if err := repository.UpsertWeeklyEstimateBaseline(ctx, "auth-a", "account-a", model.CodexWeeklyPoolEstimate{
+		Basis:              "credits",
+		Source:             "credits_current",
+		Role:               "current_estimate",
+		CalculationVersion: "credits_closed_interval_v1",
+		Status:             "reliable",
+		WeeklyPoolUSD:      &creditsValue,
+		UpdatedAtMS:        90,
+	}); err != nil {
+		t.Fatalf("upsert credits estimate: %v", err)
+	}
+	formalValue := 2_025.0
+	if err := repository.UpsertWeeklyEstimateBaseline(ctx, "auth-a", "account-a", model.CodexWeeklyPoolEstimate{
+		Basis:              "credits",
+		Source:             "credits_learned",
+		Role:               "formal_baseline",
+		CalculationVersion: "credits_closed_interval_v1",
+		Status:             "reliable",
+		WeeklyPoolUSD:      &formalValue,
+		UpdatedAtMS:        110,
+	}); err != nil {
+		t.Fatalf("upsert formal Credits estimate: %v", err)
+	}
+	apiFormalValue := 1_950.0
+	if err := repository.UpsertWeeklyEstimateBaseline(ctx, "auth-a", "account-a", model.CodexWeeklyPoolEstimate{
+		Basis:              "api_equivalent_cost",
+		Source:             "cpa_learned",
+		Role:               "formal_baseline",
+		CalculationVersion: "cpa_matched_interval_v2",
+		Status:             "reliable",
+		WeeklyPoolUSD:      &apiFormalValue,
+		UpdatedAtMS:        120,
+	}); err != nil {
+		t.Fatalf("upsert formal CPA estimate: %v", err)
+	}
+
+	estimates, err := repository.ListWeeklyEstimateBaselines(ctx, "auth-a", "account-a")
+	if err != nil {
+		t.Fatalf("list estimates: %v", err)
+	}
+	if len(estimates) != 4 || estimates[0].Basis != "api_equivalent_cost" || estimates[0].Role == "formal_baseline" || estimates[1].Role != "formal_baseline" || estimates[2].Role != "formal_baseline" || estimates[3].Role != "current_estimate" {
+		t.Fatalf("stored estimates = %#v, want current/formal CPA plus formal/current Credits", estimates)
+	}
+	primary, found, err := repository.GetWeeklyEstimateBaseline(ctx, "auth-a", "account-a")
+	if err != nil || !found || primary.Basis != "api_equivalent_cost" || primary.WeeklyPoolUSD == nil || *primary.WeeklyPoolUSD != apiValue {
+		t.Fatalf("primary estimate = %#v found=%v err=%v", primary, found, err)
+	}
+}
+
 func TestResultRoundTripPreservesAccountSnapshot(t *testing.T) {
 	db, err := sqlite.Open(filepath.Join(t.TempDir(), "usage.sqlite"))
 	if err != nil {

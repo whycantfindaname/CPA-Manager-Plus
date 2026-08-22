@@ -347,8 +347,7 @@ export function CodexInspectionResultsPanel({
                       />
                       <CodexWeeklyPoolEstimate
                         estimate={item.weeklyPoolEstimate}
-                        planType={item.planType}
-                        usedPercent={item.usedPercent}
+                        estimates={item.weeklyPoolEstimates}
                         t={t}
                       />
                     </section>
