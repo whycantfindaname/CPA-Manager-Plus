@@ -7,6 +7,11 @@
     "apps/web",
     "apps/docs"
   ],
+  "overrides": {
+    "vitepress": {
+      "vite": "6.4.3"
+    }
+  },
   "scripts": {
     "dev": "npm --workspace apps/web run dev",
     "dev:demo": "npm --workspace apps/web run dev:demo",
