@@ -2744,7 +2744,7 @@
     "codex_inspection_weekly_estimate_price_source": "价格来源：{{sources}}",
     "codex_inspection_weekly_estimate_price_source_synced": "价格来源：{{sources}} · 同步于 {{time}}",
     "codex_inspection_weekly_estimate_reason_baseline_missing": "请在本次 weekly 周期内再次巡检，以建立同账号基线。",
-    "codex_inspection_weekly_estimate_reason_delta_small": "weekly 已用量仅变化 {{percent}}，至少达到 1% 才能估算。",
+    "codex_inspection_weekly_estimate_reason_delta_small": "weekly 已用量名义变化 {{percent}}，扣除 1 pp 额度精度误差后没有足够的正向变化，暂不估算。",
     "codex_inspection_weekly_estimate_reason_identity_missing": "此凭证缺少可稳定匹配的账号身份。",
     "codex_inspection_weekly_estimate_reason_sample_incomplete": "当前响应缺少 weekly 精确重置时间。",
     "codex_inspection_weekly_estimate_reason_quota_decreased": "同一重置周期内 weekly 已用量下降，等待下一次一致样本。",

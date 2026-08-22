@@ -2744,7 +2744,7 @@
     "codex_inspection_weekly_estimate_price_source": "Price source: {{sources}}",
     "codex_inspection_weekly_estimate_price_source_synced": "Price source: {{sources}} · synced {{time}}",
     "codex_inspection_weekly_estimate_reason_baseline_missing": "Run another inspection in this weekly window to establish a baseline.",
-    "codex_inspection_weekly_estimate_reason_delta_small": "Weekly usage changed by {{percent}}; at least 1% is required.",
+    "codex_inspection_weekly_estimate_reason_delta_small": "Nominal weekly usage changed by {{percent}}, but after the 1 pp quota precision allowance there is not enough positive change to estimate.",
     "codex_inspection_weekly_estimate_reason_identity_missing": "A stable account identity is unavailable for this credential.",
     "codex_inspection_weekly_estimate_reason_sample_incomplete": "The weekly reset timestamp is unavailable.",
     "codex_inspection_weekly_estimate_reason_quota_decreased": "Weekly usage decreased within the same reset window; waiting for a consistent sample.",

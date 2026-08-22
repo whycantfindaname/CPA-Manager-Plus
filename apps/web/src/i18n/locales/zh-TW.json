@@ -2744,7 +2744,7 @@
     "codex_inspection_weekly_estimate_price_source": "價格來源：{{sources}}",
     "codex_inspection_weekly_estimate_price_source_synced": "價格來源：{{sources}} · 同步於 {{time}}",
     "codex_inspection_weekly_estimate_reason_baseline_missing": "請在本次 weekly 週期內再次巡檢，以建立同帳號基線。",
-    "codex_inspection_weekly_estimate_reason_delta_small": "weekly 已用量僅變化 {{percent}}，至少達到 1% 才能估算。",
+    "codex_inspection_weekly_estimate_reason_delta_small": "weekly 已用量名義變化 {{percent}}，扣除 1 pp 額度精度誤差後沒有足夠的正向變化，暫不估算。",
     "codex_inspection_weekly_estimate_reason_identity_missing": "此憑證缺少可穩定比對的帳號身分。",
     "codex_inspection_weekly_estimate_reason_sample_incomplete": "目前回應缺少 weekly 精確重置時間。",
     "codex_inspection_weekly_estimate_reason_quota_decreased": "同一重置週期內 weekly 已用量下降，等待下一次一致樣本。",

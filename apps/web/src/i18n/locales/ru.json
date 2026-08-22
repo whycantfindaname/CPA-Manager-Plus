@@ -2744,7 +2744,7 @@
     "codex_inspection_weekly_estimate_price_source": "Источник цен: {{sources}}",
     "codex_inspection_weekly_estimate_price_source_synced": "Источник цен: {{sources}} · синхронизировано {{time}}",
     "codex_inspection_weekly_estimate_reason_baseline_missing": "Запустите ещё одну проверку в этом недельном окне, чтобы создать базовую точку.",
-    "codex_inspection_weekly_estimate_reason_delta_small": "Недельное использование изменилось на {{percent}}; требуется не менее 1%.",
+    "codex_inspection_weekly_estimate_reason_delta_small": "Номинальное недельное использование изменилось на {{percent}}, но с учетом погрешности квоты в 1 п.п. положительного изменения недостаточно для оценки.",
     "codex_inspection_weekly_estimate_reason_identity_missing": "Для этих учётных данных нет стабильного идентификатора аккаунта.",
     "codex_inspection_weekly_estimate_reason_sample_incomplete": "Точное время сброса недельного окна недоступно.",
     "codex_inspection_weekly_estimate_reason_quota_decreased": "Использование снизилось в том же окне сброса; ожидается согласованный образец.",
