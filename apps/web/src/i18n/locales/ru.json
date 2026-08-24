@@ -2735,7 +2735,7 @@
     "codex_inspection_weekly_measured_refresh": "Каждая 5-минутная проверка независимо обновляет методы 1 и 2; без новой закрытой дневной границы используется последняя базовая оценка.",
     "codex_inspection_weekly_credits_equation": "Полные дни: {{credits}} Credits ÷ изменение weekly {{percent}} × {{rate}}/Credit",
     "codex_inspection_weekly_credits_previous_equation": "Последний изученный интервал: {{credits}} Credits ÷ изменение weekly {{percent}} × {{rate}}/Credit",
-    "codex_inspection_weekly_current_source": "Источник текущей базы: {{source}} · обновлено {{time}}",
+    "codex_inspection_weekly_current_source": "Источник текущей базы: {{source}} · сохранено {{time}}",
     "codex_inspection_weekly_time_unknown": "время неизвестно",
     "codex_inspection_estimate_method_title": "Все методы расчёта",
     "codex_inspection_estimate_method_api": "Метод 1 · CPA: закрытый интервал проверок одного аккаунта и reset; изменение затрат CPA ÷ изменение weekly usage с диапазоном из точности квоты 1 п. п. Текущее наблюдение и формальная межцикловая база сохраняются отдельно.",

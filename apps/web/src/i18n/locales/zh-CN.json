@@ -2735,7 +2735,7 @@
     "codex_inspection_weekly_measured_refresh": "每次 5 分钟巡检都会分别更新方法 1 和方法 2；没有新的关闭日边界时沿用最近基线。",
     "codex_inspection_weekly_credits_equation": "完整自然日 {{credits}} Credits ÷ 同期 weekly 已用变化 {{percent}} × {{rate}}/Credit",
     "codex_inspection_weekly_credits_previous_equation": "最近已学习区间 {{credits}} Credits ÷ 对应 weekly 已用变化 {{percent}} × {{rate}}/Credit",
-    "codex_inspection_weekly_current_source": "当前基线来源：{{source}} · 更新于 {{time}}",
+    "codex_inspection_weekly_current_source": "当前基线来源：{{source}} · 保存于 {{time}}",
     "codex_inspection_weekly_time_unknown": "时间未知",
     "codex_inspection_estimate_method_title": "全部计算方式",
     "codex_inspection_estimate_method_api": "方法 1 · CPA 实测：使用同账号、同 reset 周期的已闭合巡检区间；CPA 成本变化 ÷ weekly 已用变化，并传播 1 pp 额度精度得到估值范围。本周期观察和跨周期正式基线分别保存。",

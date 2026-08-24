@@ -2735,7 +2735,7 @@
     "codex_inspection_weekly_measured_refresh": "Each 5-minute inspection updates Methods 1 and 2 independently; without a new closed-day boundary, the latest baseline remains in use.",
     "codex_inspection_weekly_credits_equation": "Matched full days: {{credits}} Credits ÷ {{percent}} weekly used change × {{rate}}/Credit",
     "codex_inspection_weekly_credits_previous_equation": "Latest learned interval: {{credits}} Credits ÷ {{percent}} matching weekly used change × {{rate}}/Credit",
-    "codex_inspection_weekly_current_source": "Current baseline source: {{source}} · updated {{time}}",
+    "codex_inspection_weekly_current_source": "Current baseline source: {{source}} · saved {{time}}",
     "codex_inspection_weekly_time_unknown": "time unknown",
     "codex_inspection_estimate_method_title": "All calculation methods",
     "codex_inspection_estimate_method_api": "Method 1 · CPA measured: uses a closed same-account, same-reset inspection interval; CPA cost delta ÷ weekly used delta, with the 1 pp quota resolution propagated into an estimate range. Current-cycle observations and cross-cycle formal baselines are stored separately.",

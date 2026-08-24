@@ -556,6 +556,209 @@ func TestGetRunLearnsCreditsFromPreviousCycleWhenCurrentAnalyticsLags(t *testing
 	}
 }
 
+func TestGetRunLearnsCreditsFromStaleResetAtTransition(t *testing.T) {
+	ctx := context.Background()
+	db := newCodexInspectionTestStore(t)
+	svc := newCodexInspectionTestService(t, db)
+	analyticsZone := time.FixedZone("UTC+08:00", 8*60*60)
+	previousCycleStart := time.Date(2026, time.August, 17, 0, 0, 0, 0, analyticsZone)
+	currentCycleStart := previousCycleStart.Add(7 * 24 * time.Hour)
+	preTransitionAtMS := time.Date(2026, time.August, 24, 8, 38, 0, 0, analyticsZone).UnixMilli()
+	firstCurrentAtMS := time.Date(2026, time.August, 24, 8, 43, 0, 0, analyticsZone).UnixMilli()
+	laterCurrentAtMS := firstCurrentAtMS + int64(10*time.Minute/time.Millisecond)
+	staleResetAtMS := int64(1_787_818_055_000)
+	currentResetAtMS := int64(1_788_136_946_000)
+
+	insertWeeklyInspectionRun(t, db, preTransitionAtMS, staleResetAtMS, []weeklyInspectionSample{
+		{authIndex: "auth-a", accountID: "account-a", usedPercent: 92},
+	})
+	firstCurrent := insertWeeklyInspectionRun(t, db, firstCurrentAtMS, currentResetAtMS, []weeklyInspectionSample{
+		{
+			authIndex: "auth-a", accountID: "account-a", usedPercent: 0,
+			creditsUsage: &model.CodexCreditsUsage{
+				CycleStartDate:         "2026-08-24",
+				PreviousCycleCredits:   53_527.8553,
+				PreviousCycleStartDate: "2026-08-17",
+				LatestDate:             "2026-08-24",
+				AnalyticsTimezone:      "UTC+08:00",
+				ObservedAtMS:           firstCurrentAtMS,
+			},
+		},
+	})
+	if _, err := svc.GetRun(ctx, firstCurrent.ID); err != nil {
+		t.Fatalf("get first post-transition run: %v", err)
+	}
+	laterCurrent := insertWeeklyInspectionRun(t, db, laterCurrentAtMS, currentResetAtMS, []weeklyInspectionSample{
+		{
+			authIndex: "auth-a", accountID: "account-a", usedPercent: 0,
+			creditsUsage: &model.CodexCreditsUsage{
+				CycleStartDate:         "2026-08-24",
+				PreviousCycleCredits:   55_784.2201,
+				PreviousCycleStartDate: "2026-08-17",
+				LatestDate:             "2026-08-24",
+				AnalyticsTimezone:      "UTC+08:00",
+				ObservedAtMS:           laterCurrentAtMS,
+			},
+		},
+	})
+	detail, err := svc.GetRun(ctx, laterCurrent.ID)
+	if err != nil {
+		t.Fatalf("get updated post-transition run: %v", err)
+	}
+	estimate := weeklyEstimateForBasisRole(detail.Results[0].WeeklyPoolEstimates, weeklyEstimateBasisCredits, weeklyEstimateRoleFormal)
+	if estimate == nil || estimate.WeeklyPoolUSD == nil {
+		t.Fatalf("stale-reset transition estimate = %#v, want formal Credits estimate", estimate)
+	}
+	wantValue := 55_784.2201 * weeklyEstimateUSDPerCredit / 0.92
+	if math.Abs(*estimate.WeeklyPoolUSD-wantValue) > 0.000001 || estimate.Credits != 55_784.2201 || estimate.UsedPercentDelta != 92 {
+		t.Fatalf("stale-reset transition estimate = %#v, want latest previous-cycle Credits over 92%%", estimate)
+	}
+	if estimate.IntervalKind != weeklyEstimateIntervalComplete || estimate.CalculationVersion != creditsCalculationVersion || estimate.BaselineAtMS != preTransitionAtMS || estimate.UpdatedAtMS != laterCurrentAtMS {
+		t.Fatalf("stale-reset transition provenance = %#v", estimate)
+	}
+	if estimate.IntervalStartMS != previousCycleStart.UnixMilli() || estimate.IntervalEndMS != currentCycleStart.UnixMilli() {
+		t.Fatalf("stale-reset interval = [%d, %d], want [%d, %d]", estimate.IntervalStartMS, estimate.IntervalEndMS, previousCycleStart.UnixMilli(), currentCycleStart.UnixMilli())
+	}
+}
+
+func TestGetRunDoesNotCompleteCreditsCycleWithoutResetTransition(t *testing.T) {
+	ctx := context.Background()
+	db := newCodexInspectionTestStore(t)
+	svc := newCodexInspectionTestService(t, db)
+	analyticsZone := time.FixedZone("UTC+08:00", 8*60*60)
+	preTransitionAtMS := time.Date(2026, time.August, 24, 8, 38, 0, 0, analyticsZone).UnixMilli()
+	currentAtMS := time.Date(2026, time.August, 24, 8, 43, 0, 0, analyticsZone).UnixMilli()
+	previousResetAtMS := int64(1_787_818_055_000)
+	driftedResetAtMS := previousResetAtMS + int64(5*time.Minute/time.Millisecond)
+
+	insertWeeklyInspectionRun(t, db, preTransitionAtMS, previousResetAtMS, []weeklyInspectionSample{
+		{authIndex: "auth-a", accountID: "account-a", usedPercent: 92},
+	})
+	current := insertWeeklyInspectionRun(t, db, currentAtMS, driftedResetAtMS, []weeklyInspectionSample{
+		{
+			authIndex: "auth-a", accountID: "account-a", usedPercent: 0,
+			creditsUsage: &model.CodexCreditsUsage{
+				CycleStartDate:         "2026-08-24",
+				PreviousCycleCredits:   55_784.2201,
+				PreviousCycleStartDate: "2026-08-17",
+				LatestDate:             "2026-08-24",
+				AnalyticsTimezone:      "UTC+08:00",
+				ObservedAtMS:           currentAtMS,
+			},
+		},
+	})
+	detail, err := svc.GetRun(ctx, current.ID)
+	if err != nil {
+		t.Fatalf("get no-transition run: %v", err)
+	}
+	if estimate := weeklyEstimateForBasisRole(detail.Results[0].WeeklyPoolEstimates, weeklyEstimateBasisCredits, weeklyEstimateRoleFormal); estimate != nil {
+		t.Fatalf("Credits cycle completed from ordinary resetAt drift: %#v", estimate)
+	}
+}
+
+func TestGetRunDoesNotCompleteCreditsCycleBeforeAnalyticsReachesCycleStart(t *testing.T) {
+	ctx := context.Background()
+	db := newCodexInspectionTestStore(t)
+	svc := newCodexInspectionTestService(t, db)
+	analyticsZone := time.FixedZone("UTC+08:00", 8*60*60)
+	previousCycleStart := time.Date(2027, time.January, 1, 0, 0, 0, 0, analyticsZone)
+	previousResetAtMS := previousCycleStart.Add(7 * 24 * time.Hour).UnixMilli()
+	previousAtMS := previousResetAtMS - int64(5*time.Minute/time.Millisecond)
+	insertWeeklyInspectionRun(t, db, previousAtMS, previousResetAtMS, []weeklyInspectionSample{
+		{authIndex: "auth-a", accountID: "account-a", usedPercent: 80},
+	})
+	currentAtMS := previousResetAtMS + int64(time.Hour/time.Millisecond)
+	currentResetAtMS := previousResetAtMS + int64(codexWeekWindow)*1000
+	current := insertWeeklyInspectionRun(t, db, currentAtMS, currentResetAtMS, []weeklyInspectionSample{
+		{
+			authIndex: "auth-a", accountID: "account-a", usedPercent: 2,
+			creditsUsage: &model.CodexCreditsUsage{
+				CycleStartDate:         "2027-01-08",
+				PreviousCycleCredits:   40_000,
+				PreviousCycleStartDate: "2027-01-01",
+				LatestDate:             "2027-01-07",
+				AnalyticsTimezone:      "UTC+08:00",
+				ObservedAtMS:           currentAtMS,
+			},
+		},
+	})
+	detail, err := svc.GetRun(ctx, current.ID)
+	if err != nil {
+		t.Fatalf("get analytics-lag run: %v", err)
+	}
+	if estimate := weeklyEstimateForBasisRole(detail.Results[0].WeeklyPoolEstimates, weeklyEstimateBasisCredits, weeklyEstimateRoleFormal); estimate != nil {
+		t.Fatalf("Credits cycle completed before Analytics reached the new cycle date: %#v", estimate)
+	}
+}
+
+func TestGetRunPreservesCompleteCreditsFormalOverLaterPartialCurrent(t *testing.T) {
+	ctx := context.Background()
+	db := newCodexInspectionTestStore(t)
+	svc := newCodexInspectionTestService(t, db)
+	cycleStartAtMS := time.Date(2027, time.March, 1, 0, 0, 0, 0, time.UTC).UnixMilli()
+	previousResetAtMS := cycleStartAtMS + int64(codexWeekWindow)*1000
+	currentResetAtMS := previousResetAtMS + int64(codexWeekWindow)*1000
+	formalValue := 2_400.0
+	partialValue := 2_100.0
+	formalUpdatedAtMS := cycleStartAtMS + 1
+	partialUpdatedAtMS := cycleStartAtMS + 2
+
+	if err := db.UpsertCodexWeeklyEstimateBaseline(ctx, "auth-a", "account-a", model.CodexWeeklyPoolEstimate{
+		Basis: weeklyEstimateBasisCredits, Source: weeklyEstimateSourceCreditsCurrent, Role: weeklyEstimateRoleFormal,
+		IntervalKind: weeklyEstimateIntervalComplete, CalculationVersion: creditsCalculationVersion,
+		WeeklyPoolUSD: &formalValue, WeeklyResetAtMS: previousResetAtMS, UpdatedAtMS: formalUpdatedAtMS,
+	}); err != nil {
+		t.Fatalf("upsert complete formal Credits estimate: %v", err)
+	}
+	if err := db.UpsertCodexWeeklyEstimateBaseline(ctx, "auth-a", "account-a", model.CodexWeeklyPoolEstimate{
+		Basis: weeklyEstimateBasisCredits, Source: weeklyEstimateSourceCreditsCurrent, Role: weeklyEstimateRoleCurrent,
+		IntervalKind: weeklyEstimateIntervalPartial, CalculationVersion: creditsCalculationVersion,
+		WeeklyPoolUSD: &partialValue, WeeklyResetAtMS: previousResetAtMS, UpdatedAtMS: partialUpdatedAtMS,
+	}); err != nil {
+		t.Fatalf("upsert previous partial Credits estimate: %v", err)
+	}
+
+	firstAtMS := previousResetAtMS + int64(time.Hour/time.Millisecond)
+	first := insertWeeklyInspectionRun(t, db, firstAtMS, currentResetAtMS, []weeklyInspectionSample{
+		{authIndex: "auth-a", accountID: "account-a", usedPercent: 0},
+	})
+	if _, err := svc.GetRun(ctx, first.ID); err != nil {
+		t.Fatalf("get reset run: %v", err)
+	}
+	stored, err := db.ListCodexWeeklyEstimateBaselines(ctx, "auth-a", "account-a")
+	if err != nil {
+		t.Fatalf("list baselines after reset: %v", err)
+	}
+	formal := weeklyEstimateForBasisRole(stored, weeklyEstimateBasisCredits, weeklyEstimateRoleFormal)
+	if !weeklyEstimateComplete(formal) || formal.WeeklyPoolUSD == nil || *formal.WeeklyPoolUSD != formalValue || formal.UpdatedAtMS != formalUpdatedAtMS {
+		t.Fatalf("complete formal overwritten by approximate promotion: %#v", formal)
+	}
+
+	laterPartialValue := 2_200.0
+	if err := db.UpsertCodexWeeklyEstimateBaseline(ctx, "auth-a", "account-a", model.CodexWeeklyPoolEstimate{
+		Basis: weeklyEstimateBasisCredits, Source: weeklyEstimateSourceCreditsCurrent, Role: weeklyEstimateRoleCurrent,
+		IntervalKind: weeklyEstimateIntervalPartial, CalculationVersion: creditsCalculationVersion,
+		WeeklyPoolUSD: &laterPartialValue, WeeklyResetAtMS: currentResetAtMS, UpdatedAtMS: firstAtMS + 1,
+	}); err != nil {
+		t.Fatalf("upsert later partial Credits estimate: %v", err)
+	}
+	later := insertWeeklyInspectionRun(t, db, firstAtMS+2, currentResetAtMS, []weeklyInspectionSample{
+		{authIndex: "auth-a", accountID: "account-a", usedPercent: 1},
+	})
+	detail, err := svc.GetRun(ctx, later.ID)
+	if err != nil {
+		t.Fatalf("get later partial run: %v", err)
+	}
+	primary := detail.Results[0].WeeklyPoolEstimate
+	if !weeklyEstimateComplete(primary) || primary.WeeklyPoolUSD == nil || *primary.WeeklyPoolUSD != formalValue {
+		t.Fatalf("primary estimate = %#v, want preserved complete formal Credits estimate", primary)
+	}
+	current := weeklyEstimateForBasisRole(detail.Results[0].WeeklyPoolEstimates, weeklyEstimateBasisCredits, weeklyEstimateRoleCurrent)
+	if current == nil || current.WeeklyPoolUSD == nil || *current.WeeklyPoolUSD != laterPartialValue {
+		t.Fatalf("later partial current missing from estimate list: %#v", detail.Results[0].WeeklyPoolEstimates)
+	}
+}
+
 type weeklyInspectionSample struct {
 	authIndex    string
 	accountID    string

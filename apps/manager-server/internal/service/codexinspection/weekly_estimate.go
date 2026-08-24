@@ -195,7 +195,10 @@ func (s *Service) adoptWeeklyEstimateBaselines(ctx context.Context, results []mo
 		}
 		if weekly != nil {
 			previousCurrent := weeklyEstimateForBasisRole(learned, weeklyEstimateBasisCredits, weeklyEstimateRoleCurrent)
-			if creditsEstimateCompatible(previousCurrent) && !sameWeeklyResetWindow(previousCurrent.WeeklyResetAtMS, weekly.ResetAtMS) {
+			existingFormal := weeklyEstimateForBasisRole(learned, weeklyEstimateBasisCredits, weeklyEstimateRoleFormal)
+			if creditsEstimateCompatible(previousCurrent) &&
+				!sameWeeklyResetWindow(previousCurrent.WeeklyResetAtMS, weekly.ResetAtMS) &&
+				!weeklyEstimateComplete(existingFormal) {
 				promoted := *previousCurrent
 				promoted.Source = weeklyEstimateSourceCreditsLearned
 				promoted.Role = weeklyEstimateRoleFormal
@@ -262,6 +265,14 @@ func (s *Service) adoptWeeklyEstimateBaselines(ctx context.Context, results []mo
 		}
 
 		switch {
+		case weeklyEstimateComplete(apiCurrentDisplay):
+			current.WeeklyPoolEstimate = apiCurrentDisplay
+		case weeklyEstimateComplete(creditsCurrentDisplay):
+			current.WeeklyPoolEstimate = creditsCurrentDisplay
+		case weeklyEstimateComplete(apiFormalDisplay):
+			current.WeeklyPoolEstimate = apiFormalDisplay
+		case weeklyEstimateComplete(creditsFormalDisplay):
+			current.WeeklyPoolEstimate = creditsFormalDisplay
 		case apiCurrentDisplay != nil && apiCurrentDisplay.WeeklyPoolUSD != nil:
 			current.WeeklyPoolEstimate = apiCurrentDisplay
 		case creditsCurrent != nil && creditsCurrent.WeeklyPoolUSD != nil:
@@ -300,6 +311,10 @@ func creditsEstimateCompatible(estimate *model.CodexWeeklyPoolEstimate) bool {
 	return estimate != nil && estimate.CalculationVersion == creditsCalculationVersion
 }
 
+func weeklyEstimateComplete(estimate *model.CodexWeeklyPoolEstimate) bool {
+	return estimate != nil && estimate.WeeklyPoolUSD != nil && estimate.IntervalKind == weeklyEstimateIntervalComplete
+}
+
 func learnedWeeklyEstimate(estimate model.CodexWeeklyPoolEstimate, waitingForSync bool) *model.CodexWeeklyPoolEstimate {
 	switch estimate.Basis {
 	case weeklyEstimateBasisCredits:
@@ -323,10 +338,21 @@ func (s *Service) previousCycleCompleteCreditsEstimate(ctx context.Context, resu
 		return nil
 	}
 	endBoundaryMS, ok := creditsBoundaryMS(usage.CycleStartDate, usage.AnalyticsTimezone)
-	if !ok || endBoundaryMS != previousResetAtMS || startBoundaryMS != previousResetAtMS-int64(codexWeekWindow)*1000 {
+	if !ok || endBoundaryMS-startBoundaryMS != int64(codexWeekWindow)*1000 {
 		return nil
 	}
-	previous, found := s.previousWeeklySample(ctx, result, previousResetAtMS)
+	latestBoundaryMS, ok := creditsBoundaryMS(usage.LatestDate, usage.AnalyticsTimezone)
+	if !ok || latestBoundaryMS < endBoundaryMS {
+		return nil
+	}
+	var previous model.CodexInspectionResult
+	found := false
+	if endBoundaryMS == previousResetAtMS && startBoundaryMS == previousResetAtMS-int64(codexWeekWindow)*1000 {
+		previous, found = s.previousWeeklySample(ctx, result, previousResetAtMS)
+	}
+	if !found {
+		previous, found = s.previousWeeklySampleAtResetTransition(ctx, result, startBoundaryMS)
+	}
 	previousWindow := standardWeeklyQuotaWindow(previous.QuotaWindows)
 	if !found || previousWindow == nil || previousWindow.UsedPercent == nil || *previousWindow.UsedPercent < 5 {
 		return nil
@@ -588,6 +614,47 @@ func (s *Service) previousWeeklySample(ctx context.Context, result model.CodexIn
 		found = true
 	}
 	return selected, found
+}
+
+func (s *Service) previousWeeklySampleAtResetTransition(ctx context.Context, result model.CodexInspectionResult, previousCycleStartMS int64) (model.CodexInspectionResult, bool) {
+	currentWindow := standardWeeklyQuotaWindow(result.QuotaWindows)
+	if currentWindow == nil || currentWindow.UsedPercent == nil {
+		return model.CodexInspectionResult{}, false
+	}
+	history, err := s.store.ListCodexInspectionResultsByIdentity(ctx, result.AuthIndex, result.AccountID, previousCycleStartMS, result.CreatedAtMS)
+	if err != nil {
+		return model.CodexInspectionResult{}, false
+	}
+	history = append(history, result)
+	transitionAtMS := currentWindow.ResetAtMS - int64(codexWeekWindow)*1000
+	proximityToleranceMS := int64(creditsQuotaBoundaryTolerance / time.Millisecond)
+	var previous model.CodexInspectionResult
+	var previousWindow *model.CodexInspectionQuotaWindow
+	for _, candidate := range history {
+		window := standardWeeklyQuotaWindow(candidate.QuotaWindows)
+		if window == nil || window.UsedPercent == nil {
+			continue
+		}
+		transitionProximityMS := candidate.CreatedAtMS - transitionAtMS
+		if transitionProximityMS < 0 {
+			transitionProximityMS = -transitionProximityMS
+		}
+		adjacentGapMS := candidate.CreatedAtMS - previous.CreatedAtMS
+		if previousWindow != nil &&
+			sameWeeklyResetWindow(window.ResetAtMS, currentWindow.ResetAtMS) &&
+			!sameWeeklyResetWindow(previousWindow.ResetAtMS, currentWindow.ResetAtMS) &&
+			window.ResetAtMS > previousWindow.ResetAtMS &&
+			transitionProximityMS <= proximityToleranceMS &&
+			adjacentGapMS > 0 && adjacentGapMS <= proximityToleranceMS &&
+			*window.UsedPercent <= 5 &&
+			*previousWindow.UsedPercent >= 5 &&
+			*window.UsedPercent < *previousWindow.UsedPercent {
+			return previous, true
+		}
+		previous = candidate
+		previousWindow = window
+	}
+	return model.CodexInspectionResult{}, false
 }
 
 func standardWeeklyQuotaWindow(windows []model.CodexInspectionQuotaWindow) *model.CodexInspectionQuotaWindow {
