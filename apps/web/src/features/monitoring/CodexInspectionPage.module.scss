@@ -965,6 +965,30 @@
   gap: 7px;
 }
 
+.weeklyEstimatePeriod {
+  display: grid;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.weeklyEstimatePeriod + .weeklyEstimatePeriod {
+  margin-top: 7px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--inspect-line-strong) 58%, transparent);
+}
+
+.weeklyEstimatePeriodTitle {
+  margin: 0;
+  color: var(--inspect-ink);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.weeklyEstimatePeriod[data-estimate-period='previous'] .weeklyEstimatePeriodTitle {
+  color: var(--inspect-muted);
+}
+
 .weeklyEstimateMethodResult {
   display: grid;
   gap: 4px;
@@ -998,18 +1022,12 @@
   min-width: 0;
 }
 
-.weeklyEstimateRole,
 .weeklyEstimateInterval {
   padding: 2px 6px;
   border-radius: 999px;
   font-size: 10px;
   font-weight: 750;
   line-height: 1.35;
-}
-
-.weeklyEstimateRole {
-  background: color-mix(in srgb, var(--inspect-green) 11%, var(--inspect-surface));
-  color: var(--inspect-green);
 }
 
 .weeklyEstimateInterval {
@@ -1101,6 +1119,18 @@
 .weeklyEstimateScopeState {
   color: var(--inspect-accent-strong);
   font-weight: 650;
+}
+
+.weeklyEstimateCollecting {
+  display: grid;
+  gap: 3px;
+}
+
+.weeklyEstimateProgress {
+  color: var(--inspect-ink);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.4;
 }
 
 .weeklyEstimateMethod {

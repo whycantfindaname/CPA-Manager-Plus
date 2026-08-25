@@ -26,6 +26,9 @@ const t = ((key: string, options?: Record<string, unknown>) => {
   if (options?.credits) return `${key}:${options.credits}:${options.percent}:${options.rate}`;
   if (options?.min && options?.max) return `${key}:${options.min}:${options.max}`;
   if (options?.percent) return `${key}:${options.percent}`;
+  if (options?.current !== undefined && options?.required !== undefined)
+    return `${key}:${options.current}:${options.required}`;
+  if (options?.date) return `${key}:${options.date}`;
   if (options?.count !== undefined) return `${key}:${options.count}`;
   return key;
 }) as never;
@@ -210,7 +213,6 @@ describe('CodexInspectionResultsPanel', () => {
     expect(text).toContain(
       'monitoring.codex_inspection_weekly_credits_previous_equation:2000.00:4%:$0.04'
     );
-    expect(text).toContain('monitoring.codex_inspection_weekly_role_formal');
     expect(text).toContain('monitoring.codex_inspection_weekly_range:$1,900:$2,150');
     expect(
       text.some((value) => value.startsWith('monitoring.codex_inspection_weekly_current_source:'))
@@ -295,8 +297,62 @@ describe('CodexInspectionResultsPanel', () => {
     expect(text).toContain('monitoring.codex_inspection_weekly_range:$1,820:$2,110');
     expect(text).toContain('monitoring.codex_inspection_weekly_range:$1,950:$2,110');
     expect(text).toContain('monitoring.codex_inspection_weekly_credits_evidence:980.00:1.5%:2.5%');
-    expect(text).toContain('monitoring.codex_inspection_weekly_role_formal');
-    expect(text).toContain('monitoring.codex_inspection_weekly_role_current');
+    const periods = renderer.root.findAll(
+      (node) => typeof node.props['data-estimate-period'] === 'string'
+    );
+    expect(periods.map((node) => node.props['data-estimate-period'])).toEqual([
+      'current',
+      'previous',
+    ]);
+    expect(text).toContain('monitoring.codex_inspection_weekly_period_current');
+    expect(text).toContain('monitoring.codex_inspection_weekly_period_previous');
+  });
+
+  it('shows current-cycle boundary progress above the previous-cycle estimate', () => {
+    const previous = {
+      official: false,
+      basis: 'credits',
+      source: 'credits_learned',
+      role: 'formal_baseline',
+      intervalKind: 'cycle_complete',
+      status: 'reliable' as const,
+      weeklyPoolUsd: 2425,
+      weeklyPoolMinUsd: 2231,
+      weeklyPoolMaxUsd: 2425,
+    };
+    const current = {
+      official: false,
+      basis: 'credits',
+      source: 'credits_current',
+      role: 'current_estimate',
+      intervalKind: 'partial_cycle',
+      status: 'unavailable' as const,
+      reason: 'credits_boundary_pending',
+      closedBoundaryCount: 1,
+      requiredBoundaryCount: 2,
+      nextBoundaryAtMs: Date.UTC(2027, 1, 3),
+      analyticsTimezone: 'UTC+08:00',
+    };
+    const renderer = renderPanel(
+      createItem({ weeklyPoolEstimate: previous, weeklyPoolEstimates: [previous, current] })
+    );
+    const text = collectText(renderer);
+
+    expect(text).toContain('monitoring.codex_inspection_weekly_boundary_progress:1:2');
+    expect(
+      text.some((value) => value.startsWith('monitoring.codex_inspection_weekly_boundary_waiting:'))
+    ).toBe(true);
+    const periods = renderer.root.findAll(
+      (node) => typeof node.props['data-estimate-period'] === 'string'
+    );
+    expect(periods.map((node) => node.props['data-estimate-period'])).toEqual([
+      'current',
+      'previous',
+    ]);
+    expect(text).toContain('monitoring.codex_inspection_weekly_formula_details_missing');
+    expect(text).not.toContain(
+      'monitoring.codex_inspection_weekly_credits_previous_equation:0.00:0%:$0.04'
+    );
   });
 
   it('shows collection status without a fixed-value fallback', () => {

@@ -399,6 +399,51 @@ func TestGetRunRecordsCPAAndCreditsEstimatesIndependently(t *testing.T) {
 	}
 }
 
+func TestGetRunReportsCurrentCreditsBoundaryProgress(t *testing.T) {
+	ctx := context.Background()
+	db := newCodexInspectionTestStore(t)
+	svc := newCodexInspectionTestService(t, db)
+	analyticsZone := time.FixedZone("UTC+08:00", 8*60*60)
+	cycleStart := time.Date(2027, time.February, 1, 16, 0, 0, 0, analyticsZone)
+	resetAtMS := cycleStart.Add(7 * 24 * time.Hour).UnixMilli()
+	firstBoundaryAtMS := time.Date(2027, time.February, 2, 0, 0, 0, 0, analyticsZone).UnixMilli()
+	run := insertWeeklyInspectionRun(t, db, firstBoundaryAtMS+int64(time.Hour/time.Millisecond), resetAtMS, []weeklyInspectionSample{{
+		authIndex: "auth-a", accountID: "account-a", usedPercent: 8,
+		creditsUsage: &model.CodexCreditsUsage{
+			CurrentCycleCredits: 2_000,
+			ClosedCycleCredits:  1_500,
+			ClosedBoundaryDate:  "2027-02-02",
+			CycleStartDate:      "2027-02-01",
+			LatestDate:          "2027-02-02",
+			AnalyticsTimezone:   "UTC+08:00",
+			ObservedAtMS:        firstBoundaryAtMS + int64(time.Hour/time.Millisecond),
+		},
+	}})
+
+	detail, err := svc.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("get boundary progress run: %v", err)
+	}
+	var progress *model.CodexWeeklyPoolEstimate
+	for index := range detail.Results[0].WeeklyPoolEstimates {
+		candidate := &detail.Results[0].WeeklyPoolEstimates[index]
+		if candidate.Basis == weeklyEstimateBasisCredits && candidate.Role == weeklyEstimateRoleCurrent {
+			progress = candidate
+			break
+		}
+	}
+	if progress == nil || progress.WeeklyPoolUSD != nil || progress.Reason != "credits_boundary_pending" {
+		t.Fatalf("Credits progress = %#v, want a collecting placeholder", progress)
+	}
+	if progress.ClosedBoundaryCount != 1 || progress.RequiredBoundaryCount != 2 {
+		t.Fatalf("Credits boundary progress = %#v, want 1/2", progress)
+	}
+	wantNextBoundaryMS := time.Date(2027, time.February, 3, 0, 0, 0, 0, analyticsZone).UnixMilli()
+	if progress.NextBoundaryAtMS != wantNextBoundaryMS || !progress.WaitingForSync {
+		t.Fatalf("Credits next boundary = %#v, want %d and waiting", progress, wantNextBoundaryMS)
+	}
+}
+
 func TestGetRunUsesCreditsThenCarriesLearnedBaselineAcrossReset(t *testing.T) {
 	ctx := context.Background()
 	db := newCodexInspectionTestStore(t)

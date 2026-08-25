@@ -394,7 +394,7 @@ func (s *Service) previousCycleCompleteCreditsEstimate(ctx context.Context, resu
 func (s *Service) currentCreditsWeeklyEstimate(ctx context.Context, result model.CodexInspectionResult) *model.CodexWeeklyPoolEstimate {
 	weekly := standardWeeklyQuotaWindow(result.QuotaWindows)
 	usage := result.CreditsUsage
-	if weekly == nil || weekly.ResetAtMS <= 0 || usage == nil || usage.CycleStartDate == "" || usage.ClosedBoundaryDate == "" || usage.AnalyticsTimezone == "" {
+	if weekly == nil || weekly.ResetAtMS <= 0 || usage == nil || usage.CycleStartDate == "" || usage.AnalyticsTimezone == "" {
 		return nil
 	}
 	fromMS := weekly.ResetAtMS - int64(codexWeekWindow)*1000
@@ -404,8 +404,31 @@ func (s *Service) currentCreditsWeeklyEstimate(ctx context.Context, result model
 	}
 	history = append(history, result)
 	boundaries := closedCreditsBoundarySamples(history, usage.CycleStartDate, usage.AnalyticsTimezone)
+	progress := &model.CodexWeeklyPoolEstimate{
+		Official:              false,
+		Basis:                 weeklyEstimateBasisCredits,
+		Source:                weeklyEstimateSourceCreditsCurrent,
+		Role:                  weeklyEstimateRoleCurrent,
+		IntervalKind:          weeklyEstimateIntervalPartial,
+		CalculationVersion:    creditsCalculationVersion,
+		Status:                weeklyEstimateStatusUnavailable,
+		Reason:                "credits_boundary_pending",
+		CurrentAtMS:           result.CreatedAtMS,
+		WeeklyResetAtMS:       weekly.ResetAtMS,
+		QuotaKind:             weeklyEstimateQuotaKind,
+		AnalyticsTimezone:     usage.AnalyticsTimezone,
+		WaitingForSync:        true,
+		ClosedBoundaryCount:   min(len(boundaries), 2),
+		RequiredBoundaryCount: 2,
+		UpdatedAtMS:           usage.ObservedAtMS,
+	}
 	if len(boundaries) < 2 {
-		return nil
+		if len(boundaries) > 0 {
+			progress.NextBoundaryAtMS = boundaries[len(boundaries)-1].boundaryMS + int64(24*time.Hour/time.Millisecond)
+		} else if cycleStartMS, ok := creditsBoundaryMS(usage.CycleStartDate, usage.AnalyticsTimezone); ok {
+			progress.NextBoundaryAtMS = cycleStartMS + int64(24*time.Hour/time.Millisecond)
+		}
+		return progress
 	}
 	cycleStartMS := weekly.ResetAtMS - int64(codexWeekWindow)*1000
 	var selected *model.CodexWeeklyPoolEstimate
@@ -428,6 +451,12 @@ func (s *Service) currentCreditsWeeklyEstimate(ctx context.Context, result model
 			}
 		}
 	}
+	if selected == nil {
+		progress.Reason = "quota_boundary_missing"
+		return progress
+	}
+	selected.ClosedBoundaryCount = progress.ClosedBoundaryCount
+	selected.RequiredBoundaryCount = progress.RequiredBoundaryCount
 	return selected
 }
 

@@ -191,6 +191,9 @@ export interface CodexWeeklyPoolEstimate {
   quotaResolutionPp?: number;
   analyticsTimezone?: string;
   waitingForSync?: boolean;
+  closedBoundaryCount?: number;
+  requiredBoundaryCount?: number;
+  nextBoundaryAtMs?: number;
   priceSources?: string[];
   priceSyncedAtMs?: number;
   priceUpdatedAtMs?: number;

@@ -55,6 +55,28 @@ const formatBoundary = (value: number, timezone?: string) => {
   }
 };
 
+const formatBoundaryDate = (value: number, timezone?: string) => {
+  const fixedOffset = timezone?.match(/^UTC([+-])(\d{2}):(\d{2})$/);
+  if (fixedOffset) {
+    const direction = fixedOffset[1] === '-' ? -1 : 1;
+    const offsetMinutes = direction * (Number(fixedOffset[2]) * 60 + Number(fixedOffset[3]));
+    return new Intl.DateTimeFormat(undefined, {
+      month: 'short',
+      day: 'numeric',
+      timeZone: 'UTC',
+    }).format(new Date(value + offsetMinutes * 60_000));
+  }
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      month: 'short',
+      day: 'numeric',
+      timeZone: timezone,
+    }).format(new Date(value));
+  } catch {
+    return new Date(value).toLocaleDateString();
+  }
+};
+
 const reasonKey = (reason?: string) => {
   switch (reason) {
     case 'baseline_missing':
@@ -69,6 +91,10 @@ const reasonKey = (reason?: string) => {
       return 'monitoring.codex_inspection_weekly_estimate_reason_quota_decreased';
     case 'capture_pending':
       return 'monitoring.codex_inspection_weekly_estimate_reason_capture_pending';
+    case 'credits_boundary_pending':
+      return 'monitoring.codex_inspection_weekly_estimate_reason_credits_boundary_pending';
+    case 'quota_boundary_missing':
+      return 'monitoring.codex_inspection_weekly_estimate_reason_quota_boundary_missing';
     case 'identity_changed':
       return 'monitoring.codex_inspection_weekly_estimate_reason_identity_changed';
     case 'price_missing':
@@ -94,11 +120,6 @@ const sourceKey = (estimate: WeeklyPoolEstimate) => {
       return 'monitoring.codex_inspection_weekly_source_collecting';
   }
 };
-
-const roleKey = (estimate: WeeklyPoolEstimate) =>
-  estimate.role === 'formal_baseline'
-    ? 'monitoring.codex_inspection_weekly_role_formal'
-    : 'monitoring.codex_inspection_weekly_role_current';
 
 const intervalKey = (estimate: WeeklyPoolEstimate) => {
   switch (estimate.intervalKind) {
@@ -140,6 +161,24 @@ function WeeklyEstimateMethodResult({ estimate, t }: WeeklyEstimateMethodResultP
     Number.isFinite(estimate.usedPercentMinDelta) &&
     typeof estimate.usedPercentMaxDelta === 'number' &&
     Number.isFinite(estimate.usedPercentMaxDelta);
+  const hasEquationInputs =
+    estimate.basis === 'credits'
+      ? typeof estimate.credits === 'number' &&
+        Number.isFinite(estimate.credits) &&
+        estimate.credits > 0 &&
+        typeof estimate.usedPercentDelta === 'number' &&
+        Number.isFinite(estimate.usedPercentDelta) &&
+        estimate.usedPercentDelta > 0
+      : typeof estimate.costDeltaUsd === 'number' &&
+        Number.isFinite(estimate.costDeltaUsd) &&
+        estimate.costDeltaUsd > 0 &&
+        typeof estimate.usedPercentDelta === 'number' &&
+        Number.isFinite(estimate.usedPercentDelta) &&
+        estimate.usedPercentDelta > 0;
+  const hasBoundaryProgress =
+    estimate.basis === 'credits' &&
+    typeof estimate.requiredBoundaryCount === 'number' &&
+    estimate.requiredBoundaryCount > 0;
 
   return (
     <div
@@ -148,14 +187,15 @@ function WeeklyEstimateMethodResult({ estimate, t }: WeeklyEstimateMethodResultP
     >
       <div className={styles.weeklyEstimateMethodHeader}>
         <div className={styles.weeklyEstimateBadges}>
-          <span className={styles.weeklyEstimateRole}>{t(roleKey(estimate))}</span>
           <span className={`${styles.weeklyEstimateStatus} ${statusClass[estimate.status]}`}>
             {t('monitoring.codex_inspection_weekly_estimate_source_status', {
               source: estimateSource,
               status: t(`monitoring.codex_inspection_weekly_estimate_status_${estimate.status}`),
             })}
           </span>
-          <span className={styles.weeklyEstimateInterval}>{t(intervalKey(estimate))}</span>
+          {estimate.intervalKind !== 'partial_cycle' ? (
+            <span className={styles.weeklyEstimateInterval}>{t(intervalKey(estimate))}</span>
+          ) : null}
         </div>
       </div>
 
@@ -175,23 +215,29 @@ function WeeklyEstimateMethodResult({ estimate, t }: WeeklyEstimateMethodResultP
               })}
             </span>
           ) : null}
-          <span className={styles.weeklyEstimateEquation}>
-            {estimate.basis === 'credits'
-              ? t(
-                  estimate.source === 'credits_learned'
-                    ? 'monitoring.codex_inspection_weekly_credits_previous_equation'
-                    : 'monitoring.codex_inspection_weekly_credits_equation',
-                  {
-                    credits: (estimate.credits ?? 0).toFixed(2),
-                    percent: formatPercent(estimate.usedPercentDelta ?? 0),
-                    rate: formatUSD(estimate.usdPerCredit ?? 0.04),
-                  }
-                )
-              : t('monitoring.codex_inspection_weekly_estimate_equation', {
-                  cost: formatUSD(estimate.costDeltaUsd ?? 0),
-                  percent: formatPercent(estimate.usedPercentDelta ?? 0),
-                })}
-          </span>
+          {hasEquationInputs ? (
+            <span className={styles.weeklyEstimateEquation}>
+              {estimate.basis === 'credits'
+                ? t(
+                    estimate.source === 'credits_learned'
+                      ? 'monitoring.codex_inspection_weekly_credits_previous_equation'
+                      : 'monitoring.codex_inspection_weekly_credits_equation',
+                    {
+                      credits: estimate.credits!.toFixed(2),
+                      percent: formatPercent(estimate.usedPercentDelta!),
+                      rate: formatUSD(estimate.usdPerCredit ?? 0.04),
+                    }
+                  )
+                : t('monitoring.codex_inspection_weekly_estimate_equation', {
+                    cost: formatUSD(estimate.costDeltaUsd!),
+                    percent: formatPercent(estimate.usedPercentDelta!),
+                  })}
+            </span>
+          ) : (
+            <span className={styles.weeklyEstimateUpdateHint}>
+              {t('monitoring.codex_inspection_weekly_formula_details_missing')}
+            </span>
+          )}
           {hasQuotaRange ? (
             <span className={styles.weeklyEstimateEvidence}>
               {estimate.basis === 'credits'
@@ -234,11 +280,40 @@ function WeeklyEstimateMethodResult({ estimate, t }: WeeklyEstimateMethodResultP
           </span>
         </>
       ) : (
-        <span className={styles.weeklyEstimateReason}>
-          {t(reasonKey(estimate.reason), {
-            percent: formatPercent(estimate.usedPercentDelta ?? 0),
-          })}
-        </span>
+        <div className={styles.weeklyEstimateCollecting}>
+          {hasBoundaryProgress ? (
+            <>
+              <span className={styles.weeklyEstimateProgress}>
+                {t('monitoring.codex_inspection_weekly_boundary_progress', {
+                  current: estimate.closedBoundaryCount ?? 0,
+                  required: estimate.requiredBoundaryCount,
+                })}
+              </span>
+              {estimate.nextBoundaryAtMs ? (
+                <span className={styles.weeklyEstimateReason}>
+                  {t('monitoring.codex_inspection_weekly_boundary_waiting', {
+                    date: formatBoundaryDate(
+                      estimate.nextBoundaryAtMs,
+                      estimate.analyticsTimezone
+                    ),
+                  })}
+                </span>
+              ) : (
+                <span className={styles.weeklyEstimateReason}>
+                  {t(reasonKey(estimate.reason), {
+                    percent: formatPercent(estimate.usedPercentDelta ?? 0),
+                  })}
+                </span>
+              )}
+            </>
+          ) : (
+            <span className={styles.weeklyEstimateReason}>
+              {t(reasonKey(estimate.reason), {
+                percent: formatPercent(estimate.usedPercentDelta ?? 0),
+              })}
+            </span>
+          )}
+        </div>
       )}
 
       {estimate.basis !== 'credits' ? (
@@ -279,6 +354,8 @@ export function CodexWeeklyPoolEstimate({ estimate, estimates, t }: CodexWeeklyP
       ) === index
   );
   if (methods.length === 0) return null;
+  const currentMethods = methods.filter((item) => item.role !== 'formal_baseline');
+  const previousMethods = methods.filter((item) => item.role === 'formal_baseline');
   const hasAnyValue = methods.some(
     (item) => typeof item.weeklyPoolUsd === 'number' && Number.isFinite(item.weeklyPoolUsd)
   );
@@ -290,15 +367,38 @@ export function CodexWeeklyPoolEstimate({ estimate, estimates, t }: CodexWeeklyP
           {t('monitoring.codex_inspection_weekly_estimate_title')}
         </span>
       </div>
-      <div className={styles.weeklyEstimateMethods}>
-        {methods.map((method) => (
-          <WeeklyEstimateMethodResult
-            key={`${method.basis}:${method.role ?? 'default'}`}
-            estimate={method}
-            t={t}
-          />
-        ))}
-      </div>
+      {currentMethods.length ? (
+        <section className={styles.weeklyEstimatePeriod} data-estimate-period="current">
+          <h4 className={styles.weeklyEstimatePeriodTitle}>
+            {t('monitoring.codex_inspection_weekly_period_current')}
+          </h4>
+          <div className={styles.weeklyEstimateMethods}>
+            {currentMethods.map((method) => (
+              <WeeklyEstimateMethodResult
+                key={`${method.basis}:${method.role ?? 'default'}`}
+                estimate={method}
+                t={t}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
+      {previousMethods.length ? (
+        <section className={styles.weeklyEstimatePeriod} data-estimate-period="previous">
+          <h4 className={styles.weeklyEstimatePeriodTitle}>
+            {t('monitoring.codex_inspection_weekly_period_previous')}
+          </h4>
+          <div className={styles.weeklyEstimateMethods}>
+            {previousMethods.map((method) => (
+              <WeeklyEstimateMethodResult
+                key={`${method.basis}:${method.role ?? 'default'}`}
+                estimate={method}
+                t={t}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
       {!hasAnyValue ? (
         <span className={styles.weeklyEstimateUpdateHint}>
           {t('monitoring.codex_inspection_weekly_measured_refresh')}
