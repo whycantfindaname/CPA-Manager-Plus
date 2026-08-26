@@ -34,6 +34,13 @@ model -> repository -> service -> controller -> router -> httpapi -> cmd/cpa-man
 
 The migration worker and repository tests under `internal/worker/*migration*_test.go` and `internal/repository/sqlite/*test.go` are the evidence base for migration changes.
 
+Credits-based weekly pool estimates are displayable as `cycle_complete` only
+when their seven-day Analytics interval matches the recorded weekly quota reset
+window (within the service boundary tolerance). A reset transition alone does
+not authorize pairing a natural-day Credits interval with a quota percentage;
+persisted estimates are filtered by the same provenance rule without deleting
+inspection history.
+
 ## Errors, Security, And Generated Output
 
 Return stable API error codes from the owning controller/service path and preserve frontend compatibility with `apps/web/src/services/api/usageService.ts`. Do not expose `fail_body`, raw provider payloads, admin keys, CPA Management Keys, SQLite files, or `data.key` through logs, APIs, fixtures, or exports.

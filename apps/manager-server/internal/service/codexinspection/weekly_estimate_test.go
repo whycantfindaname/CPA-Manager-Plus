@@ -69,6 +69,21 @@ func TestCreditsEstimateCompatibilityRejectsLegacyCalculation(t *testing.T) {
 	if !creditsEstimateCompatible(current) {
 		t.Fatal("current Credits baseline did not qualify")
 	}
+	resetAtMS := int64(1_800_604_800_000)
+	aligned := &model.CodexWeeklyPoolEstimate{
+		Basis: weeklyEstimateBasisCredits, CalculationVersion: creditsCalculationVersion,
+		IntervalKind: weeklyEstimateIntervalComplete, WeeklyPoolUSD: &value,
+		IntervalStartMS: resetAtMS - int64(codexWeekWindow)*1000, IntervalEndMS: resetAtMS,
+		WeeklyResetAtMS: resetAtMS, QuotaKind: weeklyEstimateQuotaKind,
+	}
+	if !creditsEstimateCompatible(aligned) {
+		t.Fatal("aligned complete Credits baseline did not qualify")
+	}
+	mismatched := *aligned
+	mismatched.IntervalEndMS -= int64(22 * time.Hour / time.Millisecond)
+	if creditsEstimateCompatible(&mismatched) {
+		t.Fatal("mismatched complete Credits baseline unexpectedly qualified")
+	}
 }
 
 func TestSummarizeCodexCreditsRowsExcludesLatestOpenDate(t *testing.T) {
@@ -601,30 +616,29 @@ func TestGetRunLearnsCreditsFromPreviousCycleWhenCurrentAnalyticsLags(t *testing
 	}
 }
 
-func TestGetRunLearnsCreditsFromStaleResetAtTransition(t *testing.T) {
+func TestGetRunDoesNotCompleteCreditsFromMismatchedResetTransition(t *testing.T) {
 	ctx := context.Background()
 	db := newCodexInspectionTestStore(t)
 	svc := newCodexInspectionTestService(t, db)
 	analyticsZone := time.FixedZone("UTC+08:00", 8*60*60)
-	previousCycleStart := time.Date(2026, time.August, 17, 0, 0, 0, 0, analyticsZone)
-	currentCycleStart := previousCycleStart.Add(7 * 24 * time.Hour)
-	preTransitionAtMS := time.Date(2026, time.August, 24, 8, 38, 0, 0, analyticsZone).UnixMilli()
-	firstCurrentAtMS := time.Date(2026, time.August, 24, 8, 43, 0, 0, analyticsZone).UnixMilli()
+	transitionAtMS := time.Date(2026, time.August, 25, 22, 13, 6, 0, analyticsZone).UnixMilli()
+	preTransitionAtMS := transitionAtMS
+	firstCurrentAtMS := time.Date(2026, time.August, 25, 22, 18, 41, 0, analyticsZone).UnixMilli()
 	laterCurrentAtMS := firstCurrentAtMS + int64(10*time.Minute/time.Millisecond)
-	staleResetAtMS := int64(1_787_818_055_000)
-	currentResetAtMS := int64(1_788_136_946_000)
+	previousResetAtMS := transitionAtMS - int64(codexWeekWindow)*1000
+	currentResetAtMS := transitionAtMS
 
-	insertWeeklyInspectionRun(t, db, preTransitionAtMS, staleResetAtMS, []weeklyInspectionSample{
-		{authIndex: "auth-a", accountID: "account-a", usedPercent: 92},
+	insertWeeklyInspectionRun(t, db, preTransitionAtMS, previousResetAtMS, []weeklyInspectionSample{
+		{authIndex: "auth-a", accountID: "account-a", usedPercent: 38},
 	})
 	firstCurrent := insertWeeklyInspectionRun(t, db, firstCurrentAtMS, currentResetAtMS, []weeklyInspectionSample{
 		{
 			authIndex: "auth-a", accountID: "account-a", usedPercent: 0,
 			creditsUsage: &model.CodexCreditsUsage{
-				CycleStartDate:         "2026-08-24",
-				PreviousCycleCredits:   53_527.8553,
-				PreviousCycleStartDate: "2026-08-17",
-				LatestDate:             "2026-08-24",
+				CycleStartDate:         "2026-08-25",
+				PreviousCycleCredits:   64_023.4542675,
+				PreviousCycleStartDate: "2026-08-18",
+				LatestDate:             "2026-08-25",
 				AnalyticsTimezone:      "UTC+08:00",
 				ObservedAtMS:           firstCurrentAtMS,
 			},
@@ -637,10 +651,10 @@ func TestGetRunLearnsCreditsFromStaleResetAtTransition(t *testing.T) {
 		{
 			authIndex: "auth-a", accountID: "account-a", usedPercent: 0,
 			creditsUsage: &model.CodexCreditsUsage{
-				CycleStartDate:         "2026-08-24",
-				PreviousCycleCredits:   55_784.2201,
-				PreviousCycleStartDate: "2026-08-17",
-				LatestDate:             "2026-08-24",
+				CycleStartDate:         "2026-08-25",
+				PreviousCycleCredits:   64_023.4542675,
+				PreviousCycleStartDate: "2026-08-18",
+				LatestDate:             "2026-08-25",
 				AnalyticsTimezone:      "UTC+08:00",
 				ObservedAtMS:           laterCurrentAtMS,
 			},
@@ -650,19 +664,19 @@ func TestGetRunLearnsCreditsFromStaleResetAtTransition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get updated post-transition run: %v", err)
 	}
-	estimate := weeklyEstimateForBasisRole(detail.Results[0].WeeklyPoolEstimates, weeklyEstimateBasisCredits, weeklyEstimateRoleFormal)
-	if estimate == nil || estimate.WeeklyPoolUSD == nil {
-		t.Fatalf("stale-reset transition estimate = %#v, want formal Credits estimate", estimate)
+	for _, estimate := range detail.Results[0].WeeklyPoolEstimates {
+		if estimate.Basis == weeklyEstimateBasisCredits && (estimate.IntervalKind == weeklyEstimateIntervalComplete || estimate.WeeklyPoolUSD != nil) {
+			t.Fatalf("mismatched reset transition produced a complete/value Credits estimate: %#v", estimate)
+		}
 	}
-	wantValue := 55_784.2201 * weeklyEstimateUSDPerCredit / 0.92
-	if math.Abs(*estimate.WeeklyPoolUSD-wantValue) > 0.000001 || estimate.Credits != 55_784.2201 || estimate.UsedPercentDelta != 92 {
-		t.Fatalf("stale-reset transition estimate = %#v, want latest previous-cycle Credits over 92%%", estimate)
+	if estimate := weeklyEstimateForBasisRole(detail.Results[0].WeeklyPoolEstimates, weeklyEstimateBasisCredits, weeklyEstimateRoleFormal); estimate != nil {
+		t.Fatalf("mismatched reset transition produced a formal Credits estimate: %#v", estimate)
 	}
-	if estimate.IntervalKind != weeklyEstimateIntervalComplete || estimate.CalculationVersion != creditsCalculationVersion || estimate.BaselineAtMS != preTransitionAtMS || estimate.UpdatedAtMS != laterCurrentAtMS {
-		t.Fatalf("stale-reset transition provenance = %#v", estimate)
-	}
-	if estimate.IntervalStartMS != previousCycleStart.UnixMilli() || estimate.IntervalEndMS != currentCycleStart.UnixMilli() {
-		t.Fatalf("stale-reset interval = [%d, %d], want [%d, %d]", estimate.IntervalStartMS, estimate.IntervalEndMS, previousCycleStart.UnixMilli(), currentCycleStart.UnixMilli())
+	misleadingValue := 64_023.4542675 * weeklyEstimateUSDPerCredit / 0.38
+	for _, estimate := range detail.Results[0].WeeklyPoolEstimates {
+		if estimate.WeeklyPoolUSD != nil && math.Abs(*estimate.WeeklyPoolUSD-misleadingValue) < 0.000001 {
+			t.Fatalf("mismatched reset transition produced misleading value %.6f: %#v", misleadingValue, estimate)
+		}
 	}
 }
 
@@ -751,7 +765,9 @@ func TestGetRunPreservesCompleteCreditsFormalOverLaterPartialCurrent(t *testing.
 	if err := db.UpsertCodexWeeklyEstimateBaseline(ctx, "auth-a", "account-a", model.CodexWeeklyPoolEstimate{
 		Basis: weeklyEstimateBasisCredits, Source: weeklyEstimateSourceCreditsCurrent, Role: weeklyEstimateRoleFormal,
 		IntervalKind: weeklyEstimateIntervalComplete, CalculationVersion: creditsCalculationVersion,
-		WeeklyPoolUSD: &formalValue, WeeklyResetAtMS: previousResetAtMS, UpdatedAtMS: formalUpdatedAtMS,
+		WeeklyPoolUSD: &formalValue, WeeklyResetAtMS: previousResetAtMS,
+		IntervalStartMS: cycleStartAtMS, IntervalEndMS: previousResetAtMS, QuotaKind: weeklyEstimateQuotaKind,
+		UpdatedAtMS: formalUpdatedAtMS,
 	}); err != nil {
 		t.Fatalf("upsert complete formal Credits estimate: %v", err)
 	}
@@ -801,6 +817,34 @@ func TestGetRunPreservesCompleteCreditsFormalOverLaterPartialCurrent(t *testing.
 	current := weeklyEstimateForBasisRole(detail.Results[0].WeeklyPoolEstimates, weeklyEstimateBasisCredits, weeklyEstimateRoleCurrent)
 	if current == nil || current.WeeklyPoolUSD == nil || *current.WeeklyPoolUSD != laterPartialValue {
 		t.Fatalf("later partial current missing from estimate list: %#v", detail.Results[0].WeeklyPoolEstimates)
+	}
+}
+
+func TestGetRunHidesPersistedMismatchedCreditsFormal(t *testing.T) {
+	ctx := context.Background()
+	db := newCodexInspectionTestStore(t)
+	svc := newCodexInspectionTestService(t, db)
+	resetAtMS := time.Date(2027, time.June, 8, 22, 13, 0, 0, time.UTC).UnixMilli()
+	value := 2_400.0
+	if err := db.UpsertCodexWeeklyEstimateBaseline(ctx, "auth-a", "account-a", model.CodexWeeklyPoolEstimate{
+		Basis: weeklyEstimateBasisCredits, Source: weeklyEstimateSourceCreditsCurrent, Role: weeklyEstimateRoleFormal,
+		IntervalKind: weeklyEstimateIntervalComplete, CalculationVersion: creditsCalculationVersion,
+		WeeklyPoolUSD: &value, WeeklyResetAtMS: resetAtMS,
+		IntervalStartMS: resetAtMS - int64(codexWeekWindow)*1000,
+		IntervalEndMS:   resetAtMS - int64(time.Hour/time.Millisecond), QuotaKind: weeklyEstimateQuotaKind,
+	}); err != nil {
+		t.Fatalf("upsert mismatched formal Credits estimate: %v", err)
+	}
+
+	run := insertWeeklyInspectionRun(t, db, resetAtMS+int64(time.Hour/time.Millisecond), resetAtMS, []weeklyInspectionSample{
+		{authIndex: "auth-a", accountID: "account-a", usedPercent: 0},
+	})
+	detail, err := svc.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("get run with mismatched persisted baseline: %v", err)
+	}
+	if estimate := weeklyEstimateForBasisRole(detail.Results[0].WeeklyPoolEstimates, weeklyEstimateBasisCredits, weeklyEstimateRoleFormal); estimate != nil {
+		t.Fatalf("mismatched persisted formal Credits estimate remained visible: %#v", estimate)
 	}
 }
 
