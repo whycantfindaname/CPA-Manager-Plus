@@ -1,0 +1,4 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/guides/manager-server-development.md", "reason": "Service-layer calculation, persistence, and live-deployment constraints"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Credits, quota, persistence, API, and UI boundary contract"}
+{"file": ".trellis/spec/cpa-manager-plus-web/frontend/index.md", "reason": "Frontend state, testing, i18n, and single-file panel requirements"}
