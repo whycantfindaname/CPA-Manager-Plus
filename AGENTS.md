@@ -123,3 +123,15 @@ components -> entities / services / stores / hooks / utils
 - Conventional subjects: `feat(web): ...`, `feat(manager-server): ...`, `fix(login): ...`, `docs: ...`.
 - Keep commits scoped; no AI markers.
 - PRs: purpose, tests, linked issues, UI screenshots/recordings when relevant, affected modes (`frontend-only`, `CPA panel`, `full Docker`, `native packages`).
+
+## Managed Repository Context
+
+- Registry ID: `cpamp` (Agent Infra companion manifest `manifests/companion-repositories.json`)
+- Managed branch: `lwj_dev` (upstream mirror baseline: `main`)
+- Repository convergence authority: Agent Infra registry and sync contract (fetch, classify, safe fast-forward)
+- Owner workflow + product/runtime authority: this repository's own source, `AGENTS.md`, `README.md` and `docs/`
+- Workflow status: `registered` (`project_workflow=not_migrated`; no managed-project contract yet)
+- Read order: `AGENTS.md` -> `README.md` (panel choice / quick start) -> `docs/release.md`, `docs/reset-admin-key.md`, `docs/migration-from-cpa-manager.md` (operations runbooks)
+- Update triggers: managed branch or remote change; build/release chain change; platform activation change; service/config/secret ownership change; new stable error class; a completed reusable major update flow
+- Registered clause: the next substantive update task hitting a trigger must either promote the verified workflow into a managed-project contract (`.agent-infra/managed-project.json`) plus human guide and current error catalog, or record a concrete no-op reason
+- Do not invent workflow: until migration, follow only the docs above; do not guess build, service restart, or activation steps
