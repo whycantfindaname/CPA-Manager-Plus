@@ -334,10 +334,11 @@ func TestGetRunRecordsCPAAndCreditsEstimatesIndependently(t *testing.T) {
 	ctx := context.Background()
 	db := newCodexInspectionTestStore(t)
 	svc := newCodexInspectionTestService(t, db)
-	cycleStart := time.Date(2027, time.February, 1, 16, 0, 0, 0, time.Local)
+	analyticsZone := time.FixedZone("UTC+08:00", 8*60*60)
+	cycleStart := time.Date(2027, time.February, 1, 16, 0, 0, 0, analyticsZone)
 	resetAtMS := cycleStart.Add(7 * 24 * time.Hour).UnixMilli()
-	firstBoundaryAtMS := time.Date(2027, time.February, 2, 0, 0, 0, 0, time.Local).UnixMilli()
-	secondBoundaryAtMS := time.Date(2027, time.February, 3, 0, 0, 0, 0, time.Local).UnixMilli()
+	firstBoundaryAtMS := time.Date(2027, time.February, 2, 0, 0, 0, 0, analyticsZone).UnixMilli()
+	secondBoundaryAtMS := time.Date(2027, time.February, 3, 0, 0, 0, 0, analyticsZone).UnixMilli()
 	priceAtMS := firstBoundaryAtMS - 1
 
 	if err := db.SaveModelPrices(ctx, map[string]store.ModelPrice{
@@ -463,10 +464,11 @@ func TestGetRunUsesCreditsThenCarriesLearnedBaselineAcrossReset(t *testing.T) {
 	ctx := context.Background()
 	db := newCodexInspectionTestStore(t)
 	svc := newCodexInspectionTestService(t, db)
-	cycleStart := time.Date(2027, time.January, 1, 16, 0, 0, 0, time.Local)
+	analyticsZone := time.FixedZone("UTC+08:00", 8*60*60)
+	cycleStart := time.Date(2027, time.January, 1, 16, 0, 0, 0, analyticsZone)
 	firstResetAtMS := cycleStart.Add(7 * 24 * time.Hour).UnixMilli()
-	firstBoundaryAtMS := time.Date(2027, time.January, 2, 0, 0, 0, 0, time.Local).UnixMilli()
-	secondBoundaryAtMS := time.Date(2027, time.January, 3, 0, 0, 0, 0, time.Local).UnixMilli()
+	firstBoundaryAtMS := time.Date(2027, time.January, 2, 0, 0, 0, 0, analyticsZone).UnixMilli()
+	secondBoundaryAtMS := time.Date(2027, time.January, 3, 0, 0, 0, 0, analyticsZone).UnixMilli()
 	insertWeeklyInspectionRun(t, db, firstBoundaryAtMS, firstResetAtMS, []weeklyInspectionSample{
 		{
 			authIndex:   "auth-a",

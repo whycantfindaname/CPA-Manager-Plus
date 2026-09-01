@@ -2,6 +2,14 @@
 
 For all agents. Shared approval semantics: `/Users/seakee/.codex/prompt-policy.md`; repo rules may only tighten them.
 
+## Managed repository workflow
+
+- Workflow status: `full_workflow` (initial source-verification contract).
+- Read order: `AGENTS.md` -> `.jason-liao-agent-infra/README.md` -> project documentation.
+- The workflow contract, human guide, and current error catalog live together under
+  `.jason-liao-agent-infra/`; add later build, activation, or acceptance stages only after
+  they have been verified in real project operation.
+
 ## Operation
 
 - Language: English unless the user asks otherwise.
