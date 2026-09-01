@@ -102,6 +102,7 @@ import {
   getHeaderSnapshotUsedPercent,
   getUsageHeaderSnapshotMatchForIdentity,
 } from '@/utils/usageHeaderSnapshots';
+import { getPlanPresentation } from '@/utils/plans';
 import styles from './CodexInspectionPage.module.scss';
 
 type ServerCodexInspectionDraft = {
@@ -547,6 +548,7 @@ function formatObservedHeaderRecoverAt(value: number | null, locale: string) {
 
 function buildObservedHeaderEvidence(
   snapshot: UsageHeaderSnapshot | undefined,
+  provider: string,
   locale: string,
   t: ReturnType<typeof useTranslation>['t']
 ) {
@@ -560,8 +562,13 @@ function buildObservedHeaderEvidence(
       })
     );
   }
+  const planLabel = getPlanPresentation({
+    provider,
+    planType: getHeaderSnapshotPlanType(snapshot),
+    t,
+  })?.fullLabel;
   const quotaParts = [
-    getHeaderSnapshotPlanType(snapshot),
+    planLabel,
     (() => {
       const usedPercent = getHeaderSnapshotUsedPercent(snapshot);
       return typeof usedPercent === 'number' && Number.isFinite(usedPercent)
@@ -595,7 +602,8 @@ function buildObservedHeaderEvidence(
   return evidence;
 }
 
-function toServerResultItem(
+// eslint-disable-next-line react-refresh/only-export-components -- pure mapper is exported for unit testing
+export function toServerResultItem(
   item: CodexInspectionResult,
   t: ReturnType<typeof useTranslation>['t'],
   snapshot: UsageHeaderSnapshot | undefined,
@@ -604,7 +612,7 @@ function toServerResultItem(
   const actionReason = item.actionReason?.startsWith('monitoring.')
     ? t(item.actionReason)
     : item.actionReason;
-  const observedHeaderEvidence = buildObservedHeaderEvidence(snapshot, locale, t);
+  const observedHeaderEvidence = buildObservedHeaderEvidence(snapshot, item.provider, locale, t);
   return {
     key: `server-${item.id || item.accountKey}`,
     runtimeId: item.runtimeId ?? null,
@@ -636,6 +644,8 @@ function toServerResultItem(
       resetAtMs: window.resetAtMs ?? null,
       resetAccuracy: window.resetAccuracy,
       limitWindowSeconds: window.limitWindowSeconds ?? null,
+      modelScope: window.modelScope,
+      providerWindowAliases: window.providerWindowAliases,
     })),
     weeklyPoolEstimate: item.weeklyPoolEstimate
       ? {
@@ -705,6 +715,7 @@ interface ServerCodexInspectionPageProps {
     target?: CodexReauthTarget | null,
     snapshot?: CredentialInspectionSnapshot | null
   ) => void | Promise<void>;
+  onCodexReauthStart?: (target: CodexReauthTarget) => boolean | void;
   onOpenCredential?: (target: CredentialInspectionTarget) => void;
 }
 
@@ -713,6 +724,7 @@ export function ServerCodexInspectionPage({
   modeControl,
   onSnapshotChange,
   onCredentialsChanged,
+  onCodexReauthStart,
   onOpenCredential,
 }: ServerCodexInspectionPageProps = {}) {
   const { t, i18n } = useTranslation();
@@ -1659,7 +1671,7 @@ export function ServerCodexInspectionPage({
         navigate('/oauth#oauth-provider-xai');
         return;
       }
-      setCodexReauthTarget({
+      const target: CodexReauthTarget = {
         account: item.displayAccount || item.accountId || item.fileName,
         fileName: item.fileName,
         runtimeId: item.runtimeId ?? null,
@@ -1667,9 +1679,11 @@ export function ServerCodexInspectionPage({
         authIndex: item.authIndex ?? null,
         accountId: item.accountId ?? null,
         accountSnapshot: item.accountSnapshot ?? null,
-      });
+      };
+      if (onCodexReauthStart?.(target) === false) return;
+      setCodexReauthTarget(target);
     },
-    [navigate]
+    [navigate, onCodexReauthStart]
   );
 
   const handleDeleteServerReauth = useCallback(
