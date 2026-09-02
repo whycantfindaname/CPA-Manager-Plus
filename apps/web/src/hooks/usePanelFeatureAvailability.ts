@@ -229,7 +229,7 @@ async function detectPanelFeatureAvailability({
     return resolvePanelFeatureAvailability({
       checking: false,
       panelHostConfirmed,
-      panelHostedByUsageService: false,
+      panelHostedByUsageService,
       panelBase: normalizedPanelBase,
       managerServiceBase: '',
       managerConfig: null,

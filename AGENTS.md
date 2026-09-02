@@ -2,12 +2,6 @@
 
 For all agents. Shared approval semantics: `/Users/seakee/.codex/prompt-policy.md`; repo rules may only tighten them.
 
-## Managed repository workflow
-
-- Delivery status: `delivery_pending`; the platform adapter owns current deployment and the shared handoff contract is not yet modeled.
-- Read order: `AGENTS.md` -> project documentation.
-- No project-local delivery contract is active. Add a v2 contract only after its shared delivery boundary is modeled and the Agent Infra registry is changed to `delivery_contract`.
-
 ## Operation
 
 - Language: English unless the user asks otherwise.
@@ -129,3 +123,15 @@ components -> entities / services / stores / hooks / utils
 - Conventional subjects: `feat(web): ...`, `feat(manager-server): ...`, `fix(login): ...`, `docs: ...`.
 - Keep commits scoped; no AI markers.
 - PRs: purpose, tests, linked issues, UI screenshots/recordings when relevant, affected modes (`frontend-only`, `CPA panel`, `full Docker`, `native packages`).
+
+## Managed Repository Context
+
+- Registry ID: `cpamp` (Agent Infra companion manifest `manifests/companion-repositories.json`)
+- Managed branch: `lwj_dev` (upstream mirror baseline: `main`)
+- Repository convergence authority: Agent Infra registry and sync contract (fetch, classify, safe fast-forward)
+- Owner workflow + product/runtime authority: this repository's own source, `AGENTS.md`, `README.md` and `docs/`
+- Delivery status: `delivery_pending`; the platform adapter owns current deployment and the shared handoff contract is not yet modeled.
+- Read order: `AGENTS.md` -> `README.md` (panel choice / quick start) -> `docs/release.md`, `docs/reset-admin-key.md`, `docs/migration-from-cpa-manager.md` (operations runbooks)
+- Update triggers: managed branch or remote change; build/release chain change; platform activation change; service/config/secret ownership change; new stable error class; a completed reusable major update flow
+- No project-local delivery contract is active. Add a v2 contract only after its shared delivery boundary is modeled and the Agent Infra registry is changed to `delivery_contract`.
+- Do not invent workflow: follow only the docs above; do not guess build, service restart, or activation steps.
