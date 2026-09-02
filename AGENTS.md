@@ -4,11 +4,9 @@ For all agents. Shared approval semantics: `/Users/seakee/.codex/prompt-policy.m
 
 ## Managed repository workflow
 
-- Workflow status: `full_workflow` (initial source-verification contract).
-- Read order: `AGENTS.md` -> `.jason-liao-agent-infra/README.md` -> project documentation.
-- The workflow contract, human guide, and current error catalog live together under
-  `.jason-liao-agent-infra/`; add later build, activation, or acceptance stages only after
-  they have been verified in real project operation.
+- Delivery status: `delivery_pending`; the platform adapter owns current deployment and the shared handoff contract is not yet modeled.
+- Read order: `AGENTS.md` -> project documentation.
+- No project-local delivery contract is active. Add a v2 contract only after its shared delivery boundary is modeled and the Agent Infra registry is changed to `delivery_contract`.
 
 ## Operation
 
