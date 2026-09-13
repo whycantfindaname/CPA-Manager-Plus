@@ -54,8 +54,10 @@ const evidenceBoundary = (
   fallbackHeaderAtMs: 0,
   fallbackActionAtMs: 0,
   fallbackCooldownAtMs: 0,
+  authenticationAtMs: 0,
   rawStatusAtMs: 0,
   rawStatusMessages: [] as string[],
+  rawStatusCodes: [] as number[],
   ...overrides,
 });
 
@@ -341,7 +343,7 @@ describe('accountRows', () => {
     },
     {
       label: 'xAI',
-      file: { name: 'xai.json', type: 'xai', authIndex: 'auth-1' },
+      file: { name: 'xai.json', type: 'xai', authIndex: 'auth-1', planType: 'SuperGrok' },
       stores: {
         ...emptyStores(),
         xaiQuota: {
@@ -638,6 +640,39 @@ describe('accountRows', () => {
       available: 1,
       needsAttention: 0,
     });
+  });
+
+  it('requires post-reauth request success for available metrics', () => {
+    const file: AuthFileItem = {
+      name: 'post-reauth.json',
+      type: 'codex',
+      authIndex: 'auth-1',
+      account_id: 'space-a',
+    };
+    const selectionKey = getAuthFileSelectionKey(file);
+    const [row] = buildAccountRows(
+      [file],
+      emptyStores(),
+      undefined,
+      undefined,
+      undefined,
+      new Map([[selectionKey, evidenceBoundary({ authenticationAtMs: 2_000 })]])
+    );
+
+    expect(
+      buildAccountMetrics([row], {
+        requestEvidenceBySelectionKey: new Map([
+          [selectionKey, { latestRequest: { timestamp_ms: 1_000, failed: false } }],
+        ]),
+      })
+    ).toMatchObject({ available: 0, unconfirmed: 1 });
+    expect(
+      buildAccountMetrics([row], {
+        requestEvidenceBySelectionKey: new Map([
+          [selectionKey, { latestRequest: { timestamp_ms: 3_000, failed: false } }],
+        ]),
+      })
+    ).toMatchObject({ available: 1, unconfirmed: 0 });
   });
 
   it('marks observed Codex usage header quota and searches header diagnostics', () => {
@@ -1690,7 +1725,7 @@ describe('accountRows', () => {
   });
 
   it('keeps xAI account available while pay-as-you-go quota remains', () => {
-    const rows = buildAccountRows([{ name: 'xai.json', type: 'xai' }], {
+    const rows = buildAccountRows([{ name: 'xai.json', type: 'xai', planType: 'SuperGrok' }], {
       ...emptyStores(),
       xaiQuota: {
         'xai.json': {
@@ -1845,7 +1880,7 @@ describe('accountRows', () => {
   });
 
   it('uses xAI weekly credits when they are the tightest quota window', () => {
-    const rows = buildAccountRows([{ name: 'xai.json', type: 'xai' }], {
+    const rows = buildAccountRows([{ name: 'xai.json', type: 'xai', planType: 'SuperGrok' }], {
       ...emptyStores(),
       xaiQuota: {
         'xai.json': {
@@ -1875,7 +1910,7 @@ describe('accountRows', () => {
   });
 
   it('uses xAI product usage when period usage is not available', () => {
-    const rows = buildAccountRows([{ name: 'xai.json', type: 'xai' }], {
+    const rows = buildAccountRows([{ name: 'xai.json', type: 'xai', planType: 'SuperGrok' }], {
       ...emptyStores(),
       xaiQuota: {
         'xai.json': {
@@ -1902,6 +1937,36 @@ describe('accountRows', () => {
     expect(rows[0].quota.usedPercent).toBe(100);
     expect(rows[0].quota.resetLabel).toBe('2026-07-08T00:00:00Z');
     expect(rows[0].quota.status).toBe('exhausted');
+  });
+
+  it('does not expose xAI quota when planType is unknown even if monthly limit exists', () => {
+    const rows = buildAccountRows([{ name: 'xai-unknown.json', type: 'xai' }], {
+      ...emptyStores(),
+      xaiQuota: {
+        'xai-unknown.json': {
+          status: 'success',
+          billing: {
+            periodType: 'monthly',
+            usagePercent: null,
+            productUsage: [],
+            monthlyLimitCents: 10_000,
+            usedCents: 2_000,
+            includedUsedCents: 2_000,
+            onDemandCapCents: null,
+            onDemandUsedCents: null,
+            onDemandUsedPercent: null,
+            billingPeriodEnd: '2026-07-31T00:00:00Z',
+            usedPercent: 20,
+          },
+        },
+      },
+    });
+
+    expect(rows[0].quota).toMatchObject({
+      status: 'unknown',
+      remainingPercent: null,
+      usedPercent: null,
+    });
   });
 
   it('keeps cached Codex quota source while appending header diagnostics', () => {
@@ -2289,6 +2354,30 @@ describe('accountRows', () => {
         ...operationalContext,
       }).map((row) => row.selectionKey)
     ).toEqual([byName.get('unconfirmed.json')?.selectionKey]);
+  });
+
+  it('filters enabled and disabled credentials independently', () => {
+    const rows = buildAccountRows(
+      [
+        { name: 'enabled-codex.json', type: 'codex', authIndex: 'enabled-codex' },
+        { name: 'enabled-xai.json', type: 'xai', authIndex: 'enabled-xai' },
+        { name: 'disabled.json', type: 'codex', authIndex: 'disabled', disabled: true },
+      ],
+      emptyStores()
+    );
+    const baseFilters = {
+      provider: 'all',
+      plan: 'all',
+      quotaBand: 'all' as const,
+      search: '',
+    };
+
+    expect(
+      filterAccountRows(rows, { ...baseFilters, status: 'enabled' }).map((row) => row.fileName)
+    ).toEqual(['enabled-codex.json', 'enabled-xai.json']);
+    expect(
+      filterAccountRows(rows, { ...baseFilters, status: 'disabled' }).map((row) => row.fileName)
+    ).toEqual(['disabled.json']);
   });
 
   it('filters rows by quota band and search text', () => {
@@ -2691,6 +2780,181 @@ describe('accountRows', () => {
 
     expect(row.statusMessage).toBe('');
   });
+
+  it('supersedes a stale raw status message and all matching HTTP status codes', () => {
+    const rawStatusAtMs = 1_700_000_001_000;
+    const authenticationAtMs = rawStatusAtMs + 1_000;
+    const file: AuthFileItem = {
+      name: 'stale-status-code.codex.json',
+      type: 'codex',
+      authIndex: 'stale-status-code',
+      statusMessage: 'token_expired',
+      status_code: 401,
+      error_status: 401,
+      updatedAtMs: rawStatusAtMs,
+    };
+    const [row] = buildAccountRows(
+      [file],
+      emptyStores(),
+      undefined,
+      undefined,
+      undefined,
+      new Map([
+        [
+          getAuthFileSelectionKey(file),
+          evidenceBoundary({
+            authenticationAtMs,
+            rawStatusAtMs,
+            rawStatusMessages: ['token_expired'],
+            rawStatusCodes: [401],
+          }),
+        ],
+      ])
+    );
+
+    expect(row).toMatchObject({
+      statusMessage: '',
+      rawCredentialStatusSuperseded: true,
+      authenticationAtMs,
+    });
+  });
+
+  it('keeps the same HTTP 401 when its raw snapshot is newer than authentication recovery', () => {
+    const authenticationAtMs = 1_700_000_001_000;
+    const file: AuthFileItem = {
+      name: 'new-status-code.codex.json',
+      type: 'codex',
+      authIndex: 'new-status-code',
+      statusMessage: 'token_expired',
+      status_code: 401,
+      error_status: 401,
+      updatedAtMs: authenticationAtMs + 1_000,
+    };
+    const [row] = buildAccountRows(
+      [file],
+      emptyStores(),
+      undefined,
+      undefined,
+      undefined,
+      new Map([
+        [
+          getAuthFileSelectionKey(file),
+          evidenceBoundary({
+            localAtMs: authenticationAtMs + 5_000,
+            authenticationAtMs,
+            rawStatusAtMs: authenticationAtMs - 1_000,
+            rawStatusMessages: ['token_expired'],
+            rawStatusCodes: [401],
+          }),
+        ],
+      ])
+    );
+
+    expect(row).toMatchObject({
+      statusMessage: 'token_expired',
+      rawCredentialStatusSuperseded: false,
+    });
+  });
+
+  it('does not hide a changed raw snapshot when its timestamp predates authentication recovery', () => {
+    const authenticationAtMs = 1_700_000_002_000;
+    const file: AuthFileItem = {
+      name: 'changed-status-code.codex.json',
+      type: 'codex',
+      authIndex: 'changed-status-code',
+      statusMessage: 'invalid_token',
+      status_code: 403,
+      error_status: 403,
+      updatedAtMs: authenticationAtMs - 1_000,
+    };
+    const [row] = buildAccountRows(
+      [file],
+      emptyStores(),
+      undefined,
+      undefined,
+      undefined,
+      new Map([
+        [
+          getAuthFileSelectionKey(file),
+          evidenceBoundary({
+            authenticationAtMs,
+            rawStatusAtMs: authenticationAtMs - 1_000,
+            rawStatusMessages: ['token_expired'],
+            rawStatusCodes: [401],
+          }),
+        ],
+      ])
+    );
+
+    expect(row).toMatchObject({
+      statusMessage: 'invalid_token',
+      rawCredentialStatusSuperseded: false,
+    });
+  });
+
+  it('does not restore timestamp-only suppression after a recovery boundary releases raw values', () => {
+    const authenticationAtMs = 1_700_000_002_000;
+    const file: AuthFileItem = {
+      name: 'released-status-code.codex.json',
+      type: 'codex',
+      authIndex: 'released-status-code',
+      statusMessage: 'invalid_token',
+      status_code: 403,
+      updatedAtMs: authenticationAtMs - 1_000,
+    };
+    const [row] = buildAccountRows(
+      [file],
+      emptyStores(),
+      undefined,
+      undefined,
+      undefined,
+      new Map([
+        [
+          getAuthFileSelectionKey(file),
+          evidenceBoundary({ authenticationAtMs, rawStatusAtMs: 0 }),
+        ],
+      ])
+    );
+
+    expect(row).toMatchObject({
+      statusMessage: 'invalid_token',
+      rawCredentialStatusSuperseded: false,
+    });
+  });
+
+  it('supersedes a code-only raw credential status snapshot', () => {
+    const rawStatusAtMs = 1_700_000_001_000;
+    const file: AuthFileItem = {
+      name: 'code-only-status.codex.json',
+      type: 'codex',
+      authIndex: 'code-only-status',
+      statusMessage: '',
+      status_code: 401,
+      error_status: 401,
+      updatedAtMs: rawStatusAtMs,
+    };
+    const [row] = buildAccountRows(
+      [file],
+      emptyStores(),
+      undefined,
+      undefined,
+      undefined,
+      new Map([
+        [
+          getAuthFileSelectionKey(file),
+          evidenceBoundary({
+            authenticationAtMs: rawStatusAtMs + 1_000,
+            rawStatusAtMs,
+            rawStatusMessages: [],
+            rawStatusCodes: [401],
+          }),
+        ],
+      ])
+    );
+
+    expect(row).toMatchObject({ statusMessage: '', rawCredentialStatusSuperseded: true });
+  });
+
   it('uses the completed mutation time when a refreshed credential repeats the stale status', () => {
     const file: AuthFileItem = {
       name: 'reauthorized-status.codex.json',

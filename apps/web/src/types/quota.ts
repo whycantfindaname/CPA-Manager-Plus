@@ -368,6 +368,7 @@ export interface CodexQuotaWindow {
   limitWindowSeconds?: number | null;
   observationSource?: QuotaObservationSource;
   observedAtMs?: number | null;
+  quotaProgressObservedAtMs?: number | null;
   modelScope?: QuotaModelScope;
   providerWindowAliases?: string[];
 }
@@ -392,6 +393,7 @@ export interface CodexQuotaState extends CredentialScopedQuotaState {
   rateLimitResetCreditsAvailableCount?: number | null;
   rateLimitResetCredits?: CodexRateLimitResetCredit[];
   rateLimitResetCreditsError?: string | null;
+  resetCreditsEvidenceAtMs?: number | null;
   error?: string;
   errorStatus?: number;
   observedFromUsageHeaders?: boolean;
@@ -603,6 +605,7 @@ export interface XaiBillingSummary {
   officialApiHealth?: XaiOfficialApiHealth;
   partial?: boolean;
   diagnostics?: XaiBillingDiagnostic[];
+  rateLimited?: boolean;
 }
 
 export interface XaiQuotaState extends CredentialScopedQuotaState {
