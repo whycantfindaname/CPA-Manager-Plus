@@ -118,6 +118,10 @@ func LoadOrCreateDataKey(rawValue string, keyPath string) ([]byte, bool, error) 
 	if err := os.WriteFile(keyPath, []byte(content), 0o600); err != nil {
 		return nil, false, fmt.Errorf("write data key %s: %w", keyPath, err)
 	}
+	if err := RestrictPath(keyPath, 0o600); err != nil {
+		_ = os.Remove(keyPath)
+		return nil, false, fmt.Errorf("restrict data key %s: %w", keyPath, err)
+	}
 	return key, true, nil
 }
 

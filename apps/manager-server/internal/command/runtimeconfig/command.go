@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/security"
 )
 
 type options struct {
@@ -93,7 +95,7 @@ func sanitize(inputPath string, outputPath string) error {
 		return fmt.Errorf("encode sanitized runtime config: %w", err)
 	}
 	output = append(output, '\n')
-	if err := writeAtomic(outputPath, output, info.Mode().Perm()); err != nil {
+	if err := writeAtomic(outputPath, output, security.NormalizeFileMode(info.Mode().Perm())); err != nil {
 		return fmt.Errorf("write sanitized runtime config %s: %w", outputPath, err)
 	}
 	return nil
@@ -127,6 +129,9 @@ func writeAtomic(path string, data []byte, mode os.FileMode) (returnErr error) {
 		return err
 	}
 	if err := temp.Close(); err != nil {
+		return err
+	}
+	if err := security.RestrictPath(tempPath, mode); err != nil {
 		return err
 	}
 	if err := os.Rename(tempPath, path); err != nil {

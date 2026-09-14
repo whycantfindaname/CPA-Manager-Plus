@@ -1,18 +1,20 @@
 package managerdatasnapshot
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/processlock"
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/security"
 )
 
 func TestRunCreateRestoreAndDelete(t *testing.T) {
@@ -26,8 +28,8 @@ func TestRunCreateRestoreAndDelete(t *testing.T) {
 	writeTestFile(t, dataKeyPath, "key-before", 0o600)
 
 	runSnapshotCommand(t, "create", dbPath, dataKeyPath, snapshotDir)
-	if info, err := os.Stat(snapshotDir); err != nil || info.Mode().Perm() != 0o700 {
-		t.Fatalf("snapshot directory info=%v err=%v", info, err)
+	if err := security.VerifyPrivatePath(snapshotDir, 0o700); err != nil {
+		t.Fatalf("snapshot directory security: %v", err)
 	}
 
 	writeTestFile(t, dbPath, "database-after", 0o600)
@@ -46,8 +48,8 @@ func TestRunCreateRestoreAndDelete(t *testing.T) {
 	if _, err := os.Stat(dbPath + "-shm"); !os.IsNotExist(err) {
 		t.Fatalf("post-snapshot shm still exists: %v", err)
 	}
-	if info, err := os.Stat(dbPath); err != nil || info.Mode().Perm() != 0o640 {
-		t.Fatalf("restored database mode=%v err=%v", info.Mode().Perm(), err)
+	if err := security.VerifyPrivatePath(dbPath, 0o640); err != nil {
+		t.Fatalf("restored database security: %v", err)
 	}
 
 	runSnapshotCommand(t, "delete", dbPath, dataKeyPath, snapshotDir)
@@ -338,8 +340,12 @@ func TestManagerDataSnapshotSignalHelperProcess(t *testing.T) {
 	dataKeyPath := os.Getenv("CPA_MANAGER_SNAPSHOT_SIGNAL_DATA_KEY")
 	snapshotDir := os.Getenv("CPA_MANAGER_SNAPSHOT_SIGNAL_DIR")
 	markerPath := os.Getenv("CPA_MANAGER_SNAPSHOT_SIGNAL_MARKER")
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
+		cancel()
+	}()
 	waitForSignal := func() {
 		if err := os.WriteFile(markerPath, []byte("ready\n"), 0o600); err != nil {
 			t.Fatalf("write signal marker: %v", err)
@@ -363,9 +369,6 @@ func TestManagerDataSnapshotSignalHelperProcess(t *testing.T) {
 }
 
 func TestManagerDataSnapshotSignalsCancelBeforeCommit(t *testing.T) {
-	if os.PathSeparator == '\\' {
-		t.Skip("POSIX process signals are required")
-	}
 	for _, mode := range []string{"create", "restore"} {
 		t.Run(mode, func(t *testing.T) {
 			dataDir := t.TempDir()
@@ -382,6 +385,10 @@ func TestManagerDataSnapshotSignalsCancelBeforeCommit(t *testing.T) {
 			}
 
 			cmd := exec.Command(os.Args[0], "-test.run=^TestManagerDataSnapshotSignalHelperProcess$")
+			stdin, err := cmd.StdinPipe()
+			if err != nil {
+				t.Fatalf("open signal helper stdin: %v", err)
+			}
 			cmd.Env = append(os.Environ(),
 				"CPA_MANAGER_SNAPSHOT_SIGNAL_HELPER="+mode,
 				"CPA_MANAGER_SNAPSHOT_SIGNAL_DB="+dbPath,
@@ -407,10 +414,13 @@ func TestManagerDataSnapshotSignalsCancelBeforeCommit(t *testing.T) {
 				}
 				time.Sleep(10 * time.Millisecond)
 			}
-			if err := cmd.Process.Signal(os.Interrupt); err != nil {
+			if _, err := io.WriteString(stdin, "cancel\n"); err != nil {
 				_ = cmd.Process.Kill()
 				_ = cmd.Wait()
-				t.Fatalf("signal helper: %v", err)
+				t.Fatalf("cancel signal helper: %v", err)
+			}
+			if err := stdin.Close(); err != nil {
+				t.Fatalf("close signal helper stdin: %v", err)
 			}
 			if err := cmd.Wait(); err != nil {
 				t.Fatalf("signal helper exit: %v\n%s", err, output.String())
@@ -477,6 +487,9 @@ func writeTestFile(t testing.TB, path string, value string, mode os.FileMode) {
 	}
 	if err := os.Chmod(path, mode); err != nil {
 		t.Fatalf("chmod %s: %v", path, err)
+	}
+	if err := security.RestrictPath(path, mode); err != nil {
+		t.Fatalf("restrict %s: %v", path, err)
 	}
 }
 

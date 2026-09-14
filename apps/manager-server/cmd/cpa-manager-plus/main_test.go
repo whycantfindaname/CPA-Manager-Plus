@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -259,7 +260,13 @@ func TestManagerServerHelperProcess(t *testing.T) {
 	if os.Getenv("CPA_MANAGER_TEST_HELPER") != "1" {
 		t.Skip("helper process only")
 	}
-	runServer()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
+		cancel()
+	}()
+	runServerWithContext(ctx)
 }
 
 type startupUsageEventsSummary struct {
@@ -311,10 +318,11 @@ func prepareLargeStartupMigrationFixture(t testing.TB, dbPath string, rowCount i
 }
 
 type managerServerProcess struct {
-	cmd  *exec.Cmd
-	addr string
-	done chan error
-	logs *synchronizedLog
+	cmd   *exec.Cmd
+	stdin io.WriteCloser
+	addr  string
+	done  chan error
+	logs  *synchronizedLog
 }
 
 type synchronizedLog struct {
@@ -338,6 +346,10 @@ func startManagerServerProcess(t testing.TB, dataDir, dbPath string) *managerSer
 	t.Helper()
 	cmd := exec.Command(os.Args[0], "-test.run=^TestManagerServerHelperProcess$")
 	cmd.Env = managerServerTestEnvironment(dataDir, dbPath)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatalf("open manager server helper stdin: %v", err)
+	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		t.Fatalf("open manager server stderr: %v", err)
@@ -346,9 +358,10 @@ func startManagerServerProcess(t testing.TB, dataDir, dbPath string) *managerSer
 		t.Fatalf("start manager server helper: %v", err)
 	}
 	process := &managerServerProcess{
-		cmd:  cmd,
-		done: make(chan error, 1),
-		logs: &synchronizedLog{},
+		cmd:   cmd,
+		stdin: stdin,
+		done:  make(chan error, 1),
+		logs:  &synchronizedLog{},
 	}
 	lines := make(chan string, 128)
 	go func() {
@@ -412,8 +425,13 @@ func managerServerTestEnvironment(dataDir, dbPath string) []string {
 
 func (p *managerServerProcess) stop(t testing.TB) {
 	t.Helper()
-	if err := p.cmd.Process.Signal(os.Interrupt); err != nil {
-		t.Fatalf("signal manager server helper: %v", err)
+	if _, err := io.WriteString(p.stdin, "shutdown\n"); err != nil {
+		_ = p.cmd.Process.Kill()
+		<-p.done
+		t.Fatalf("request manager server helper shutdown: %v", err)
+	}
+	if err := p.stdin.Close(); err != nil {
+		t.Fatalf("close manager server helper stdin: %v", err)
 	}
 	select {
 	case err := <-p.done:

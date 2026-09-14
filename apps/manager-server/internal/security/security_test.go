@@ -2,7 +2,6 @@ package security
 
 import (
 	"encoding/base64"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -274,12 +273,8 @@ func TestLoadOrCreateDataKeyCreatesStableRestrictedFile(t *testing.T) {
 		t.Fatalf("created=%v len=%d", created, len(first))
 	}
 
-	info, err := os.Stat(keyPath)
-	if err != nil {
-		t.Fatalf("stat data key: %v", err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("data key permissions = %o, want 600", info.Mode().Perm())
+	if err := VerifyPrivatePath(keyPath, 0o600); err != nil {
+		t.Fatalf("data key security: %v", err)
 	}
 
 	second, created, err := LoadOrCreateDataKey("", keyPath)

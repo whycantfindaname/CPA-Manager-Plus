@@ -45,10 +45,8 @@ func TestRunStoresFreshConnectionEncryptedWithoutLeakingSecret(t *testing.T) {
 	if !strings.Contains(stdout.String(), "stored in encrypted") {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
-	if info, err := os.Stat(dataKeyPath); err != nil {
-		t.Fatalf("stat data key: %v", err)
-	} else if info.Mode().Perm() != 0o600 {
-		t.Fatalf("data key mode = %o", info.Mode().Perm())
+	if err := security.VerifyPrivatePath(dataKeyPath, 0o600); err != nil {
+		t.Fatalf("data key security: %v", err)
 	}
 
 	requireRawSettingEncrypted(t, dbPath, "manager_config_v1")

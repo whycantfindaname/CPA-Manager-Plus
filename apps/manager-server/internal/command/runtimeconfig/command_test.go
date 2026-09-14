@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/security"
 )
 
 func TestRunRemovesOnlyLegacyConnectionFields(t *testing.T) {
@@ -49,8 +51,8 @@ func TestRunRemovesOnlyLegacyConnectionFields(t *testing.T) {
 	if err := json.Unmarshal(fields["unknownObject"], &unknown); err != nil || unknown["enabled"] != true {
 		t.Fatalf("unknownObject=%v err=%v", unknown, err)
 	}
-	if info, err := os.Stat(outputPath); err != nil || info.Mode().Perm() != 0o640 {
-		t.Fatalf("output mode=%v err=%v", info.Mode().Perm(), err)
+	if err := security.VerifyPrivatePath(outputPath, 0o640); err != nil {
+		t.Fatalf("output security: %v", err)
 	}
 }
 

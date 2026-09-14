@@ -19,7 +19,7 @@ const statusClass: Record<CodexWeeklyPoolEstimateStatus, string> = {
 };
 
 const formatUSD = (value: number) =>
-  new Intl.NumberFormat(undefined, {
+  new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
     minimumFractionDigits: value >= 100 ? 0 : 2,

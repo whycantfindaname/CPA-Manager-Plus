@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/processlock"
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/security"
 )
 
 const manifestVersion = 1
@@ -164,6 +165,9 @@ func create(ctx context.Context, dbPath string, dataKeyPath string, snapshotDir 
 	if err := os.Chmod(tempDir, 0o700); err != nil {
 		return fmt.Errorf("protect temporary snapshot directory: %w", err)
 	}
+	if err := security.RestrictPath(tempDir, 0o700); err != nil {
+		return fmt.Errorf("restrict temporary snapshot directory: %w", err)
+	}
 
 	m := manifest{Version: manifestVersion, Files: make(map[string]manifestEntry, len(snapshotFiles))}
 	for _, item := range snapshotFiles {
@@ -209,7 +213,7 @@ func snapshotOne(ctx context.Context, source string, target string) (manifestEnt
 	}
 	return manifestEntry{
 		Existed: true,
-		Mode:    uint32(info.Mode().Perm()),
+		Mode:    uint32(security.NormalizeFileMode(info.Mode().Perm())),
 		Size:    size,
 		SHA256:  digest,
 	}, nil
@@ -565,6 +569,9 @@ func copyFile(ctx context.Context, source string, target string, mode os.FileMod
 	if err := output.Close(); err != nil {
 		return "", 0, err
 	}
+	if err := security.RestrictPath(target, mode); err != nil {
+		return "", 0, err
+	}
 	removeTarget = false
 	return hex.EncodeToString(hash.Sum(nil)), written, nil
 }
@@ -611,5 +618,12 @@ func writeNewFile(path string, data []byte, mode os.FileMode) error {
 		_ = file.Close()
 		return err
 	}
-	return file.Close()
+	if err := file.Close(); err != nil {
+		return err
+	}
+	if err := security.RestrictPath(path, mode); err != nil {
+		_ = os.Remove(path)
+		return err
+	}
+	return nil
 }

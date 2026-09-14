@@ -80,6 +80,17 @@ func runManagerDataSnapshotCommand(args []string, stdout io.Writer, stderr io.Wr
 }
 
 func runServer() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	runServerWithContext(ctx)
+}
+
+// runServerWithContext contains the server lifecycle so tests can cancel a
+// child process through an OS-independent control channel. Production callers
+// use runServer, which supplies the normal console and SIGTERM signals.
+func runServerWithContext(parentCtx context.Context) {
+	ctx, stop := context.WithCancel(parentCtx)
+	defer stop()
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("load config: %v", err)
@@ -141,8 +152,6 @@ func runServer() {
 	manager := collector.NewManager(cfg, db)
 	collectorService := collectorservice.New(manager)
 	collectorWorker := worker.NewCollectorWorker(cfg, db, collectorService)
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	walMaintenance, err := sqliterepo.NewWALMaintenance(cfg.DBPath)
 	if err != nil {
 		log.Printf("configure SQLite WAL maintenance: %v", err)
