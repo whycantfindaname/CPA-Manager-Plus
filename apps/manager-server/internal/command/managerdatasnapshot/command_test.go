@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -340,12 +341,22 @@ func TestManagerDataSnapshotSignalHelperProcess(t *testing.T) {
 	dataKeyPath := os.Getenv("CPA_MANAGER_SNAPSHOT_SIGNAL_DATA_KEY")
 	snapshotDir := os.Getenv("CPA_MANAGER_SNAPSHOT_SIGNAL_DIR")
 	markerPath := os.Getenv("CPA_MANAGER_SNAPSHOT_SIGNAL_MARKER")
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() {
-		_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
-		cancel()
-	}()
+	control := os.Getenv("CPA_MANAGER_SNAPSHOT_SIGNAL_CONTROL")
+	var ctx context.Context
+	var stop context.CancelFunc
+	switch control {
+	case "interrupt":
+		ctx, stop = signal.NotifyContext(context.Background(), os.Interrupt)
+	case "stdin":
+		ctx, stop = context.WithCancel(context.Background())
+		go func() {
+			_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
+			stop()
+		}()
+	default:
+		t.Fatalf("unsupported signal control %q", control)
+	}
+	defer stop()
 	waitForSignal := func() {
 		if err := os.WriteFile(markerPath, []byte("ready\n"), 0o600); err != nil {
 			t.Fatalf("write signal marker: %v", err)
@@ -368,7 +379,19 @@ func TestManagerDataSnapshotSignalHelperProcess(t *testing.T) {
 	}
 }
 
+func TestManagerDataSnapshotCancelsBeforeCommit(t *testing.T) {
+	runManagerDataSnapshotCancelBeforeCommit(t, "stdin")
+}
+
 func TestManagerDataSnapshotSignalsCancelBeforeCommit(t *testing.T) {
+	if os.PathSeparator == '\\' {
+		t.Skip("POSIX process signals are required")
+	}
+	runManagerDataSnapshotCancelBeforeCommit(t, "interrupt")
+}
+
+func runManagerDataSnapshotCancelBeforeCommit(t *testing.T, control string) {
+	t.Helper()
 	for _, mode := range []string{"create", "restore"} {
 		t.Run(mode, func(t *testing.T) {
 			dataDir := t.TempDir()
@@ -385,12 +408,17 @@ func TestManagerDataSnapshotSignalsCancelBeforeCommit(t *testing.T) {
 			}
 
 			cmd := exec.Command(os.Args[0], "-test.run=^TestManagerDataSnapshotSignalHelperProcess$")
-			stdin, err := cmd.StdinPipe()
-			if err != nil {
-				t.Fatalf("open signal helper stdin: %v", err)
+			var stdin io.WriteCloser
+			if control == "stdin" {
+				var err error
+				stdin, err = cmd.StdinPipe()
+				if err != nil {
+					t.Fatalf("open stdin cancellation helper: %v", err)
+				}
 			}
 			cmd.Env = append(os.Environ(),
 				"CPA_MANAGER_SNAPSHOT_SIGNAL_HELPER="+mode,
+				"CPA_MANAGER_SNAPSHOT_SIGNAL_CONTROL="+control,
 				"CPA_MANAGER_SNAPSHOT_SIGNAL_DB="+dbPath,
 				"CPA_MANAGER_SNAPSHOT_SIGNAL_DATA_KEY="+dataKeyPath,
 				"CPA_MANAGER_SNAPSHOT_SIGNAL_DIR="+snapshotDir,
@@ -414,13 +442,24 @@ func TestManagerDataSnapshotSignalsCancelBeforeCommit(t *testing.T) {
 				}
 				time.Sleep(10 * time.Millisecond)
 			}
-			if _, err := io.WriteString(stdin, "cancel\n"); err != nil {
-				_ = cmd.Process.Kill()
-				_ = cmd.Wait()
-				t.Fatalf("cancel signal helper: %v", err)
-			}
-			if err := stdin.Close(); err != nil {
-				t.Fatalf("close signal helper stdin: %v", err)
+			switch control {
+			case "stdin":
+				if _, err := io.WriteString(stdin, "cancel\n"); err != nil {
+					_ = cmd.Process.Kill()
+					_ = cmd.Wait()
+					t.Fatalf("cancel stdin helper: %v", err)
+				}
+				if err := stdin.Close(); err != nil {
+					t.Fatalf("close stdin cancellation helper: %v", err)
+				}
+			case "interrupt":
+				if err := cmd.Process.Signal(os.Interrupt); err != nil {
+					_ = cmd.Process.Kill()
+					_ = cmd.Wait()
+					t.Fatalf("interrupt cancellation helper: %v", err)
+				}
+			default:
+				t.Fatalf("unsupported cancellation control %q", control)
 			}
 			if err := cmd.Wait(); err != nil {
 				t.Fatalf("signal helper exit: %v\n%s", err, output.String())

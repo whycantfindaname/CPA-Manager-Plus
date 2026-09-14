@@ -105,7 +105,10 @@ func VerifyPrivatePath(path string, mode os.FileMode) error {
 	if err != nil {
 		return fmt.Errorf("read private ACL entries for %s: %w", path, err)
 	}
-	if dacl == nil || dacl.AceCount != 1 {
+	if dacl == nil {
+		return fmt.Errorf("private ACL for %s has no DACL, want 1 entry", path)
+	}
+	if dacl.AceCount != 1 {
 		return fmt.Errorf("private ACL for %s has %d entries, want 1", path, dacl.AceCount)
 	}
 	var ace *windows.ACCESS_ALLOWED_ACE
