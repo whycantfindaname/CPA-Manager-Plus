@@ -1,4 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { obfuscatedStorage } from '@/services/storage/secureStorage';
+import { STORAGE_KEY_AUTH } from '@/utils/constants';
+import { useAuthStore, useUsageServiceStore } from '@/stores';
+import { enableDemoPersistIsolation } from './demoPersistIsolation';
 
 type StorageLike = {
   getItem: (key: string) => string | null;
@@ -29,8 +33,9 @@ describe('demo persist isolation', () => {
   let storage: StorageLike;
 
   beforeEach(() => {
-    vi.resetModules();
     storage = createMemoryStorage();
+    vi.stubGlobal('window', { location: { host: 'demo-persist-isolation.test' } });
+    vi.stubGlobal('navigator', { userAgent: 'vitest' });
     vi.stubGlobal('localStorage', storage);
   });
 
@@ -39,9 +44,6 @@ describe('demo persist isolation', () => {
   });
 
   it('keeps demo auth and usage-service state out of persisted storage', async () => {
-    const { STORAGE_KEY_AUTH } = await import('@/utils/constants');
-    const { obfuscatedStorage } = await import('@/services/storage/secureStorage');
-
     obfuscatedStorage.setItem(STORAGE_KEY_AUTH, {
       state: {
         apiBase: 'http://real.local:18317',
@@ -63,8 +65,6 @@ describe('demo persist isolation', () => {
       },
     });
 
-    const { useAuthStore, useUsageServiceStore } = await import('@/stores');
-    const { enableDemoPersistIsolation } = await import('./demoPersistIsolation');
     const restorePersistIsolation = enableDemoPersistIsolation();
 
     useAuthStore.setState({
