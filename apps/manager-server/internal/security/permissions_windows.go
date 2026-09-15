@@ -10,6 +10,11 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// SetEntriesInAcl maps GENERIC_ALL to the concrete full-control mask for a
+// file object before it is stored in the ACE. x/sys/windows exposes the
+// generic bit but not FILE_ALL_ACCESS; this is FILE_ALL_ACCESS (0x1f01ff).
+const privateFileFullControlMask windows.ACCESS_MASK = windows.STANDARD_RIGHTS_REQUIRED | windows.SYNCHRONIZE | 0x1ff
+
 // RestrictPath gives the current service identity the only explicit access
 // entry and protects the DACL from inherited entries. Windows does not expose
 // POSIX mode bits through os.FileInfo, so an owner-only ACL is the equivalent
@@ -115,7 +120,7 @@ func VerifyPrivatePath(path string, mode os.FileMode) error {
 	if err := windows.GetAce(dacl, 0, &ace); err != nil {
 		return fmt.Errorf("read private ACL entry for %s: %w", path, err)
 	}
-	if ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE || ace.Mask != windows.GENERIC_ALL {
+	if ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE || ace.Mask != privateFileFullControlMask {
 		return fmt.Errorf("private ACL for %s is not owner-only full control", path)
 	}
 	aceSID := (*windows.SID)(unsafe.Pointer(&ace.SidStart))

@@ -53,7 +53,7 @@ func TestWindowsPrivatePathRestrictAndVerifyReadsNativeACL(t *testing.T) {
 	if err := windows.GetAce(dacl, 0, &ace); err != nil {
 		t.Fatalf("read native DACL ACE: %v", err)
 	}
-	if got, want := ace.Mask, windows.ACCESS_MASK(windows.GENERIC_ALL); got != want {
+	if got, want := ace.Mask, privateFileFullControlMask; got != want {
 		t.Fatalf("native private ACE mask = %#x, want %#x", got, want)
 	}
 	aceSID := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
@@ -119,6 +119,55 @@ func TestWindowsPrivatePathRejectsNullDACL(t *testing.T) {
 	}
 	if err := VerifyPrivatePath(path, 0o600); err == nil {
 		t.Fatal("null DACL was accepted")
+	}
+}
+
+func TestWindowsPrivatePathRejectsInsufficientPermissions(t *testing.T) {
+	path := t.TempDir() + `\insufficient-permissions.data`
+	if err := os.WriteFile(path, []byte("private"), 0o600); err != nil {
+		t.Fatalf("write private file: %v", err)
+	}
+	if err := RestrictPath(path, 0o600); err != nil {
+		t.Fatalf("restrict private file: %v", err)
+	}
+
+	token, err := windows.OpenCurrentProcessToken()
+	if err != nil {
+		t.Fatalf("open current process token: %v", err)
+	}
+	defer token.Close()
+	user, err := token.GetTokenUser()
+	if err != nil {
+		t.Fatalf("read current process identity: %v", err)
+	}
+	acl, err := windows.ACLFromEntries([]windows.EXPLICIT_ACCESS{
+		{
+			AccessPermissions: windows.GENERIC_READ,
+			AccessMode:        windows.GRANT_ACCESS,
+			Inheritance:       windows.NO_INHERITANCE,
+			Trustee: windows.TRUSTEE{
+				TrusteeForm:  windows.TRUSTEE_IS_SID,
+				TrusteeType:  windows.TRUSTEE_IS_USER,
+				TrusteeValue: windows.TrusteeValueFromSID(user.User.Sid),
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("build insufficient-permissions DACL: %v", err)
+	}
+	if err := windows.SetNamedSecurityInfo(
+		path,
+		windows.SE_FILE_OBJECT,
+		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
+		nil,
+		nil,
+		acl,
+		nil,
+	); err != nil {
+		t.Fatalf("set insufficient-permissions DACL: %v", err)
+	}
+	if err := VerifyPrivatePath(path, 0o600); err == nil {
+		t.Fatal("DACL with insufficient permissions was accepted")
 	}
 }
 
