@@ -95,6 +95,33 @@ func TestWindowsPrivatePathRejectsEmptyDACL(t *testing.T) {
 	}
 }
 
+func TestWindowsPrivatePathRejectsNullDACL(t *testing.T) {
+	path := t.TempDir() + `\null-dacl.data`
+	if err := os.WriteFile(path, []byte("private"), 0o600); err != nil {
+		t.Fatalf("write private file: %v", err)
+	}
+	if err := RestrictPath(path, 0o600); err != nil {
+		t.Fatalf("restrict private file: %v", err)
+	}
+
+	// Passing a nil ACL to SetNamedSecurityInfo asks Windows to install a
+	// null DACL. VerifyPrivatePath must reject that permissive descriptor.
+	if err := windows.SetNamedSecurityInfo(
+		path,
+		windows.SE_FILE_OBJECT,
+		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
+		nil,
+		nil,
+		nil,
+		nil,
+	); err != nil {
+		t.Fatalf("set null DACL: %v", err)
+	}
+	if err := VerifyPrivatePath(path, 0o600); err == nil {
+		t.Fatal("null DACL was accepted")
+	}
+}
+
 func TestWindowsPrivatePathRejectsExtraACE(t *testing.T) {
 	path := t.TempDir() + `\extra-ace.data`
 	if err := os.WriteFile(path, []byte("private"), 0o600); err != nil {
