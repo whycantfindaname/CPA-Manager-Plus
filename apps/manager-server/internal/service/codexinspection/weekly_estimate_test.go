@@ -2,6 +2,8 @@ package codexinspection
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"testing"
@@ -907,7 +909,7 @@ func insertWeeklyInspectionRun(t *testing.T, db *store.Store, createdAtMS, reset
 
 func weeklyEstimateUsageEvent(hash string, timestampMS int64, authIndex, accountSnapshot string, inputTokens int64) usage.Event {
 	return usage.Event{
-		EventHash:       hash,
+		EventHash:       canonicalWeeklyEstimateHash(hash),
 		TimestampMS:     timestampMS,
 		Timestamp:       time.UnixMilli(timestampMS).UTC().Format(time.RFC3339Nano),
 		Provider:        model.CodexInspectionTargetCodex,
@@ -919,6 +921,11 @@ func weeklyEstimateUsageEvent(hash string, timestampMS int64, authIndex, account
 		TotalTokens:     inputTokens,
 		CreatedAtMS:     timestampMS,
 	}
+}
+
+func canonicalWeeklyEstimateHash(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
 }
 
 func assertWeeklyEstimate(t *testing.T, estimate *model.CodexWeeklyPoolEstimate, cost, delta, value float64, baselineAtMS, resetAtMS int64) {
