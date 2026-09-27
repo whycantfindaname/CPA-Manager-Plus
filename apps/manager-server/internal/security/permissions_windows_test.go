@@ -39,6 +39,13 @@ func TestWindowsPrivatePathRestrictAndVerifyReadsNativeACL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read native security descriptor: %v", err)
 	}
+	owner, _, err := descriptor.Owner()
+	if err != nil {
+		t.Fatalf("read native owner: %v", err)
+	}
+	if owner == nil || !owner.Equals(user.User.Sid) {
+		t.Fatalf("native private owner = %v, want current identity %s", owner, user.User.Sid)
+	}
 	dacl, _, err := descriptor.DACL()
 	if err != nil {
 		t.Fatalf("read native DACL: %v", err)
