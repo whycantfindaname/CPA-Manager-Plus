@@ -11,10 +11,12 @@ warnings.filterwarnings("ignore")
 
 import json
 import os
+import queue
 import re
 import shlex
 import subprocess
 import sys
+import threading
 from io import StringIO
 from pathlib import Path
 
@@ -840,16 +842,63 @@ def _build_workflow_overview(workflow_path: Path) -> str:
     return "\n".join(out_lines).rstrip()
 
 
+def _load_hook_input() -> dict:
+    """Read hook JSON without trusting host runners to close stdin.
+
+    Kiro IDE `runCommand` and similar hook runners can leave stdin open, with
+    or without writing a payload, so waiting for EOF can block forever. A
+    daemon thread forwards stdin chunks as they arrive; the payload is
+    returned as soon as the bytes received so far parse as a JSON object, so
+    an unclosed pipe does not discard a complete payload. Reading stops at
+    EOF or after 0.2 s without new bytes, failing closed to `{}`. The
+    abandoned daemon thread is safe: interpreter shutdown discards daemon
+    threads outright (threading docs), so the process exits without waiting
+    for the pipe.
+    """
+    chunks: "queue.Queue[bytes]" = queue.Queue()
+
+    def _read() -> None:
+        """Forward stdin chunks onto the queue; b"" marks EOF or an error."""
+        try:
+            fd = sys.stdin.fileno()
+            while True:
+                chunk = os.read(fd, 65536)
+                chunks.put(chunk)
+                if not chunk:
+                    return
+        except Exception:
+            chunks.put(b"")
+
+    threading.Thread(target=_read, daemon=True).start()
+    buf = b""
+    while True:
+        try:
+            chunk = chunks.get(timeout=0.2)
+        except queue.Empty:
+            break
+        if not chunk:
+            break
+        buf += chunk
+        try:
+            data = json.loads(buf.decode("utf-8"))
+        except ValueError:  # includes JSONDecodeError and UnicodeDecodeError
+            continue
+        if isinstance(data, dict):
+            return data
+
+    try:
+        data = json.loads(buf.decode("utf-8")) if buf.strip() else {}
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def main():
+    """Assemble and print the SessionStart additionalContext payload."""
     if should_skip_injection():
         sys.exit(0)
 
-    try:
-        hook_input = json.loads(sys.stdin.read())
-        if not isinstance(hook_input, dict):
-            hook_input = {}
-    except (json.JSONDecodeError, ValueError):
-        hook_input = {}
+    hook_input = _load_hook_input()
 
     # Try platform-specific env vars, hook cwd, fallback to cwd
     project_dir_env_vars = [

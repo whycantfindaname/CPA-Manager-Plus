@@ -28,7 +28,9 @@ warnings.filterwarnings("ignore")
 
 import json
 import os
+import queue
 import sys
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -806,8 +808,31 @@ To get structured package info, run: `python3 ./{DIR_WORKFLOW}/scripts/get_conte
     return "\n\n".join(context_parts)
 
 
-def build_research_prompt(original_prompt: str, context: str) -> str:
-    """Build complete prompt for Research"""
+def build_research_prompt(
+    original_prompt: str, context: str, task_dir: str | None = None
+) -> str:
+    """Build complete prompt for Research.
+
+    With an active task, findings are persisted under ``<task_dir>/research/``
+    as the trellis-research agent definition requires; without one, the
+    agent reports in its reply and writes nothing.
+    """
+    if task_dir:
+        research_dir = f"{task_dir.rstrip('/')}/research"
+        write_rule = (
+            f"**Allowed writes**: files under `{research_dir}/` only "
+            "(one markdown file per topic; create the directory if needed)"
+        )
+        forbidden_write = f"- Modify any file outside `{research_dir}/`"
+        report_rule = (
+            f"Write each topic to `{research_dir}/<topic-slug>.md`, then reply "
+            "with the list of files written and a short summary. Each file "
+            "includes:"
+        )
+    else:
+        write_rule = "**Allowed writes**: none (no active task)"
+        forbidden_write = "- Modify any files"
+        report_rule = "Provide structured search results including:"
     return f"""# Research Agent Task
 
 You are the Research Agent in the Multi-Agent Pipeline (search researcher).
@@ -851,15 +876,17 @@ You are a documenter, not a reviewer.
 
 **Only allowed**: Describe what exists, where it is, how it works
 
+{write_rule}
+
 **Forbidden** (unless explicitly asked):
 - Suggest improvements
 - Criticize implementation
 - Recommend refactoring
-- Modify any files
+{forbidden_write}
 
 ## Report Format
 
-Provide structured search results including:
+{report_rule}
 - List of files found (with paths)
 - Code pattern analysis (if applicable)
 - Related spec documents
@@ -1090,14 +1117,63 @@ def _parse_hook_input(input_data: dict) -> tuple[str, str, dict]:
     return "", "", tool_input
 
 
+def _load_hook_input() -> dict:
+    """Read hook JSON without trusting host runners to close stdin.
+
+    Kiro IDE `runCommand` and similar hook runners can leave stdin open, with
+    or without writing a payload, so waiting for EOF can block forever. A
+    daemon thread forwards stdin chunks as they arrive; the payload is
+    returned as soon as the bytes received so far parse as a JSON object, so
+    an unclosed pipe does not discard a complete payload. Reading stops at
+    EOF or after 0.2 s without new bytes, failing closed to `{}`. The
+    abandoned daemon thread is safe: interpreter shutdown discards daemon
+    threads outright (threading docs), so the process exits without waiting
+    for the pipe.
+    """
+    chunks: "queue.Queue[bytes]" = queue.Queue()
+
+    def _read() -> None:
+        """Forward stdin chunks onto the queue; b"" marks EOF or an error."""
+        try:
+            fd = sys.stdin.fileno()
+            while True:
+                chunk = os.read(fd, 65536)
+                chunks.put(chunk)
+                if not chunk:
+                    return
+        except Exception:
+            chunks.put(b"")
+
+    threading.Thread(target=_read, daemon=True).start()
+    buf = b""
+    while True:
+        try:
+            chunk = chunks.get(timeout=0.2)
+        except queue.Empty:
+            break
+        if not chunk:
+            break
+        buf += chunk
+        try:
+            data = json.loads(buf.decode("utf-8"))
+        except ValueError:  # includes JSONDecodeError and UnicodeDecodeError
+            continue
+        if isinstance(data, dict):
+            return data
+
+    try:
+        data = json.loads(buf.decode("utf-8")) if buf.strip() else {}
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def main():
+    """Rewrite the spawned sub-agent prompt with Trellis task context."""
     if os.environ.get("TRELLIS_HOOKS") == "0" or os.environ.get("TRELLIS_DISABLE_HOOKS") == "1":
         sys.exit(0)
 
-    try:
-        input_data = json.load(sys.stdin)
-    except json.JSONDecodeError:
-        sys.exit(0)
+    input_data = _load_hook_input()
     if not isinstance(input_data, dict):
         sys.exit(0)
 
@@ -1175,7 +1251,22 @@ def main():
     elif subagent_type == AGENT_RESEARCH:
         # Research can work without task directory
         context = get_research_context(repo_root, task_dir)
-        new_prompt = build_research_prompt(original_prompt, context)
+        research_task_dir = task_dir
+        if research_task_dir:
+            try:
+                root_real = os.path.realpath(repo_root)
+                workflow_real = os.path.realpath(os.path.join(repo_root, ".trellis"))
+                candidate = os.path.realpath(os.path.join(repo_root, research_task_dir))
+                if not (
+                    _real_path_contained(root_real, candidate)
+                    or _real_path_contained(workflow_real, candidate)
+                ) or not os.path.isdir(candidate):
+                    research_task_dir = None
+            except OSError:
+                research_task_dir = None
+        new_prompt = build_research_prompt(
+            original_prompt, context, research_task_dir
+        )
     else:
         sys.exit(0)
 
