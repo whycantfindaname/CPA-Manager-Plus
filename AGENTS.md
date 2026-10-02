@@ -121,7 +121,7 @@ components -> entities / services / stores / hooks / utils
 
 - No direct commits to `main`.
 - Conventional subjects: `feat(web): ...`, `feat(manager-server): ...`, `fix(login): ...`, `docs: ...`.
-- Keep commits scoped; no AI markers.
+- Keep commits scoped. Factual `Source-Actor` provenance required by the canonical Agent Infra Commit provenance contract is permitted; follow the registry-resolved reference in workflow Phase 3.4. Do not add promotional AI markers. All explicit edit, stage, commit, and push approvals above still apply.
 - PRs: purpose, tests, linked issues, UI screenshots/recordings when relevant, affected modes (`frontend-only`, `CPA panel`, `full Docker`, `native packages`).
 
 ## Managed Repository Context
