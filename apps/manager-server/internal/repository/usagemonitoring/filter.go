@@ -85,17 +85,6 @@ func storedStatsConditions(filter AnalyticsFilter, revision string, fromMS, toMS
 	return conditions, args
 }
 
-func rawStatsConditions(filter AnalyticsFilter, fromMS, toMS, afterID int64, useAfterID bool) ([]string, []any) {
-	conditions := []string{"e.timestamp_ms >= ?", "e.timestamp_ms < ?"}
-	args := []any{fromMS, toMS}
-	if useAfterID {
-		conditions = append(conditions, "e.id > ?")
-		args = append(args, afterID)
-	}
-	appendStatsScopeConditions(filter, "e.", &conditions, &args)
-	return conditions, args
-}
-
 func appendStatsScopeConditions(filter AnalyticsFilter, prefix string, conditions *[]string, args *[]any) {
 	column := func(name string) string { return prefix + name }
 	addInCondition := func(expression string, values []string) {

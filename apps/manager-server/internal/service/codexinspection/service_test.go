@@ -2588,28 +2588,6 @@ func TestDecodeCPAAPICallResponseRejectsOversizedBody(t *testing.T) {
 	}
 }
 
-func TestDoCPAActionRejectsLargeBusinessFailureResponse(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"padding":"`))
-		_, _ = w.Write([]byte(strings.Repeat("x", 1024*1024)))
-		_, _ = w.Write([]byte(`","failed":["denied"]}`))
-	}))
-	t.Cleanup(upstream.Close)
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, upstream.URL, nil)
-	if err != nil {
-		t.Fatalf("new request: %v", err)
-	}
-	svc := New(nil, nil, upstream.Client())
-	actionErr, statusCode := svc.doCPAAction(req, "management-key")
-	if actionErr == nil || !strings.Contains(actionErr.Error(), "denied") {
-		t.Fatalf("action error = %v, want denied failure", actionErr)
-	}
-	if statusCode != http.StatusOK {
-		t.Fatalf("status code = %d, want %d", statusCode, http.StatusOK)
-	}
-}
-
 func TestRunPersistsPlanQuotaWindowsAndErrorDetail(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {

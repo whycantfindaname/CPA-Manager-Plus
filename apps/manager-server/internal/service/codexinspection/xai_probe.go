@@ -1156,21 +1156,6 @@ func xaiProbeShouldRetry(probe xaiBillingProbe) bool {
 	}
 }
 
-func xaiFailureDetails(failures []xaiProbeDecision) string {
-	parts := make([]string, 0, len(failures))
-	for _, failure := range failures {
-		part := failure.Classification
-		if failure.StatusCode > 0 {
-			part = fmt.Sprintf("%s (HTTP %d)", part, failure.StatusCode)
-		}
-		if detail := strings.TrimSpace(failure.ErrorDetail); detail != "" {
-			part += ": " + detail
-		}
-		parts = append(parts, part)
-	}
-	return truncate(strings.Join(parts, " · "), maxStoredBodyText)
-}
-
 func xaiDecision(status int, classification string, detail string) *xaiProbeDecision {
 	action := "keep"
 	isQuota := false

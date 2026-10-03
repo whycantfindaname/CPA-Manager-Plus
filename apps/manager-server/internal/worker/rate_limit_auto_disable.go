@@ -920,13 +920,6 @@ func xaiFreeUsageHasExplicitReset(event usage.Event, now time.Time) bool {
 	return ok
 }
 
-func xaiFreeUsageResetTimeFromJSONText(text string, base time.Time) (time.Time, bool) {
-	if resetAt, ok := xaiResetTimeFromJSONText(text, base, xaiAbsoluteResetKeys, false); ok {
-		return resetAt, true
-	}
-	return xaiResetTimeFromJSONText(text, base, xaiRelativeResetKeys, true)
-}
-
 var (
 	xaiAbsoluteResetKeys = []string{
 		"reset_at", "resetAt", "resets_at", "resetsAt",

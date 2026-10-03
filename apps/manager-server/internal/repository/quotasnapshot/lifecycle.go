@@ -2509,25 +2509,6 @@ func cycleMatchesSnapshot(cycle model.AccountQuotaCycle, snapshot model.AccountQ
 		absInt64(*cycle.ScheduledEndMS-*snapshot.CycleEndMS) <= quotaBoundaryJitterMS
 }
 
-func preferredAccuracy(current, next string) string {
-	rank := func(value string) int {
-		switch value {
-		case "exact":
-			return 3
-		case "derived":
-			return 2
-		case "estimated":
-			return 1
-		default:
-			return 0
-		}
-	}
-	if rank(next) > rank(current) {
-		return next
-	}
-	return current
-}
-
 func providerCycleKey(snapshot model.AccountQuotaSnapshot) string {
 	return fmt.Sprintf("%d:%d:%d", *snapshot.CycleStartMS, *snapshot.CycleEndMS, *snapshot.DurationSeconds)
 }

@@ -666,13 +666,6 @@ func valueOr(value string, fallback string) string {
 	return strings.TrimSpace(value)
 }
 
-func valueOrLower(value string, fallback string) string {
-	if strings.TrimSpace(value) == "" {
-		return fallback
-	}
-	return strings.ToLower(strings.TrimSpace(value))
-}
-
 func positiveOr(value int, fallback int) int {
 	if value > 0 {
 		return value

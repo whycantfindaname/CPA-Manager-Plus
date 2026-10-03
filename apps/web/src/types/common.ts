@@ -23,13 +23,6 @@ export interface ApiResponse<T = unknown> {
   message?: string;
 }
 
-export interface PaginationState {
-  currentPage: number;
-  pageSize: number;
-  totalPages: number;
-  totalItems?: number;
-}
-
 export interface LoadingState {
   isLoading: boolean;
   error: Error | null;

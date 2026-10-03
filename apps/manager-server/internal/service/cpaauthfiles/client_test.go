@@ -1404,6 +1404,14 @@ func TestValidateActionResponse(t *testing.T) {
 	}
 }
 
+func TestValidateActionResponseRejectsLargeBusinessFailureResponse(t *testing.T) {
+	body := `{"padding":"` + strings.Repeat("x", 1024*1024) + `","failed":["denied"]}`
+	err := ValidateActionResponse(strings.NewReader(body))
+	if err == nil || !strings.Contains(err.Error(), "denied") {
+		t.Fatalf("ValidateActionResponse() error = %v, want denied failure", err)
+	}
+}
+
 func TestValidateActionResponseRejectsOversizedBody(t *testing.T) {
 	body := `{"padding":"` + strings.Repeat("x", maxActionResponseSize) + `"}`
 	err := ValidateActionResponse(strings.NewReader(body))

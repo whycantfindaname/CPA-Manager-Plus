@@ -901,12 +901,6 @@ func (s *Service) finalizeInspectionRunAttempt(ctx context.Context, run model.Co
 	})
 }
 
-func (s *Service) forceFinalizeInspectionRun(run model.CodexInspectionRun, finalLog *model.CodexInspectionLog) error {
-	finalizeCtx, cancelFinalize := context.WithTimeout(context.Background(), criticalWriteTimeout)
-	defer cancelFinalize()
-	return s.forceFinalizeInspectionRunWithContext(finalizeCtx, run, finalLog)
-}
-
 func (s *Service) forceFinalizeInspectionRunWithContext(ctx context.Context, run model.CodexInspectionRun, finalLog *model.CodexInspectionLog) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -2790,33 +2784,6 @@ func (s *Service) restorePatchedStatusActionTargets(
 	return rollbackErr
 }
 
-func verifySourceFileStatusTarget(target cpaauthfiles.StatusMutationTarget, members []model.CodexInspectionResult) error {
-	if target.Scope != cpaauthfiles.StatusMutationScopeSourceFile {
-		return fmt.Errorf("%w: current target is not a source file", cpaauthfiles.ErrStatusMutationScopeAmbiguous)
-	}
-	if len(target.AffectedFiles) != len(members) {
-		return fmt.Errorf("%w: source file membership changed", cpaauthfiles.ErrIdentityMismatch)
-	}
-	for _, member := range members {
-		identity := inspectionAuthFileIdentity(member)
-		matches := make([]cpaauthfiles.File, 0, 1)
-		for _, file := range target.AffectedFiles {
-			if strings.TrimSpace(file.Name) != identity.AuthFileName ||
-				strings.TrimSpace(file.AuthIndex) != identity.AuthIndex {
-				continue
-			}
-			matches = append(matches, file)
-		}
-		if len(matches) != 1 {
-			return fmt.Errorf("%w: source file member %q auth_index %q changed", cpaauthfiles.ErrIdentityMismatch, identity.AuthFileName, identity.AuthIndex)
-		}
-		if _, err := cpaauthfiles.VerifyIdentity(matches, identity); err != nil {
-			return fmt.Errorf("verify source file member: %w", err)
-		}
-	}
-	return nil
-}
-
 func detachedActionContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	base := context.Background()
 	if ctx != nil {
@@ -2859,55 +2826,6 @@ func (s *Service) rollbackSourceFileDisable(
 		resultErr = fmt.Errorf("%w; restore inspection disable ownership failed: %v", resultErr, restoreErr)
 	}
 	return resultErr
-}
-
-func (s *Service) deleteAuthFileOnly(ctx context.Context, setup store.Setup, path string, fileName string) error {
-	err, _ := s.deleteAuthFile(ctx, setup, path, fileName)
-	return err
-}
-
-func (s *Service) deleteAuthFile(ctx context.Context, setup store.Setup, path string, fileName string) (error, int) {
-	endpoint := cpa.NormalizeBaseURL(setup.CPAUpstreamURL) + path + "?name=" + url.QueryEscape(fileName)
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, endpoint, nil)
-	if err != nil {
-		return err, 0
-	}
-	return s.doCPAAction(req, setup.ManagementKey)
-}
-
-func (s *Service) patchAuthFile(ctx context.Context, setup store.Setup, path string, payload map[string]any) (error, int) {
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return err, 0
-	}
-	req, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodPatch,
-		cpa.NormalizeBaseURL(setup.CPAUpstreamURL)+path,
-		bytes.NewReader(data),
-	)
-	if err != nil {
-		return err, 0
-	}
-	req.Header.Set("Content-Type", "application/json")
-	return s.doCPAAction(req, setup.ManagementKey)
-}
-
-func (s *Service) doCPAAction(req *http.Request, managementKey string) (error, int) {
-	req.Header.Set("Authorization", "Bearer "+managementKey)
-	res, err := s.client.Do(req)
-	if err != nil {
-		return err, 0
-	}
-	defer res.Body.Close()
-	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(res.Body, maxStoredBodyText))
-		return fmt.Errorf("%s %s", res.Status, truncate(string(body), maxStoredBodyText)), res.StatusCode
-	}
-	if err := cpaauthfiles.ValidateActionResponse(res.Body); err != nil {
-		return err, res.StatusCode
-	}
-	return nil, res.StatusCode
 }
 
 type runLogger struct {
@@ -4976,10 +4894,6 @@ func readMapSlice(record map[string]any, keys ...string) []map[string]any {
 		return items
 	}
 	return nil
-}
-
-func formatCodexResetLabel(window *codexWindow) string {
-	return formatCodexResetLabelAt(window, time.Now())
 }
 
 func formatCodexResetLabelAt(window *codexWindow, observedAt time.Time) string {

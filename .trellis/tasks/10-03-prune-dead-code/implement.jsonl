@@ -1,0 +1,5 @@
+{"file": "AGENTS.md", "reason": "Current repository authority, boundaries and verification; precedes any stale historical spec text"}
+{"file": ".trellis/spec/cpa-manager-plus-web/frontend/index.md", "reason": "Owning layer quality and placement contract; apply only task scope"}
+{"file": ".trellis/spec/cpa-manager-plus-web/frontend/quality-guidelines.md", "reason": "Owning layer quality and placement contract; apply only task scope"}
+{"file": ".trellis/spec/cpa-manager-plus-web/frontend/directory-structure.md", "reason": "Owning layer quality and placement contract; apply only task scope"}
+{"file": ".trellis/spec/guides/manager-server-development.md", "reason": "Owning Go backend layering, persistence and required verification"}

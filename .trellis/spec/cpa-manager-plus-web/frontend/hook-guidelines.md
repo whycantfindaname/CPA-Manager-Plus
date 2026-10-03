@@ -10,7 +10,7 @@ paths:
 
 ## Ownership
 
-- Put reusable browser or application behavior in `src/hooks/`, such as `useDebounce.ts`, `useInterval.ts`, `useLocalStorage.ts`, and `useUnsavedChangesGuard.ts`.
+- Put reusable browser or application behavior in `src/hooks/`, such as `useInterval.ts`, `useLocalStorage.ts`, and `useUnsavedChangesGuard.ts`.
 - Put workflow-specific orchestration under `features/<domain>/hooks/`. `features/accounts/hooks/useAccountsWorkspaceRefresh.ts` and `features/authFiles/hooks/useAuthFilesData.ts` are representative.
 - Keep pure parsing, gating, and transformation outside hooks so it can be tested without a renderer. `usePanelFeatureAvailability.ts` exports pure helpers alongside the hook and tests both behavior layers.
 

@@ -110,7 +110,7 @@ describe('panel feature availability', () => {
       buildPanelManagerServiceCandidates({
         panelHostConfirmed: true,
         panelHostedByUsageService: true,
-        panelBase: 'http://manager.local:18317',
+        panelBase: 'http://manager.local:18317/',
       })
     ).toEqual(['http://manager.local:18317']);
 
@@ -119,6 +119,16 @@ describe('panel feature availability', () => {
         panelHostConfirmed: false,
         panelHostedByUsageService: true,
         panelBase: 'http://manager.local:18317',
+      })
+    ).toEqual([]);
+  });
+
+  it('does not build an embedded Manager candidate without a panel base', () => {
+    expect(
+      buildPanelManagerServiceCandidates({
+        panelHostConfirmed: true,
+        panelHostedByUsageService: true,
+        panelBase: '',
       })
     ).toEqual([]);
   });
